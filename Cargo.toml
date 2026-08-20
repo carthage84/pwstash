@@ -3,7 +3,8 @@ name = "pwstash"
 version = "0.1.0"
 authors = ["carthage84 <carthage84@gmail.com>"]
 license = "MIT"
-edition = "2021"
+edition = "2024"
+rust-version = "1.97"
 
 [dependencies]
 crossterm = "0.27.0"

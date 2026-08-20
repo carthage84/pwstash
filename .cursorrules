@@ -1,0 +1,7 @@
+this is a Rust project
+uses Rust 2024 edition and the latest stable toolchain (rustc 1.97+)
+
+don't be lazy write all the code to implement features I ask for
+don't make stuff up, use existing code from files
+don't assume things, ask for clarification if needed
+use existing code from files

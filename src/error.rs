@@ -65,4 +65,10 @@ pub enum StashError {
 
     #[error("vault is locked")]
     VaultLocked,
+
+    #[error("transfer aborted")]
+    TransferAborted,
+
+    #[error("pass --all or --service to choose entries")]
+    NoServicesSelected,
 }

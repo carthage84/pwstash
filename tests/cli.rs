@@ -324,6 +324,100 @@ fn delete_without_yes_fails_when_stdin_is_not_a_tty() {
 }
 
 #[test]
+fn backup_export_import() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    add(&dir, "github", "ada", "hunter2");
+    add(&dir, "mail", "bob", "secret");
+
+    let backup = dir.path().join("vault.bak");
+    bin()
+        .args(["backup", "-f"])
+        .arg(vault_file(&dir))
+        .args(["-o"])
+        .arg(&backup)
+        .assert()
+        .success();
+    assert!(backup.exists());
+
+    let dest = dir.path().join("other.stash");
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .env("PWSTASH_DEST_MASTER", "dest-secret")
+        .args(["export", "-f"])
+        .arg(vault_file(&dir))
+        .args(["-o"])
+        .arg(&dest)
+        .args(["--service", "github"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Copied 1"));
+
+    bin()
+        .env("PWSTASH_MASTER", "dest-secret")
+        .args(["get", "-f"])
+        .arg(&dest)
+        .args(["--service", "github"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Password: hunter2"));
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["list", "-f"])
+        .arg(vault_file(&dir))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("github"));
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .env("PWSTASH_DEST_MASTER", "dest-secret")
+        .args(["export", "-f"])
+        .arg(vault_file(&dir))
+        .args(["-o"])
+        .arg(&dest)
+        .args(["--service", "mail", "--move", "--on-conflict", "skip"])
+        .assert()
+        .success();
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["list", "-f"])
+        .arg(vault_file(&dir))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mail").not());
+
+    let third = dir.path().join("third.stash");
+    bin()
+        .env("PWSTASH_MASTER", "third-secret")
+        .args(["init", "-f"])
+        .arg(&third)
+        .assert()
+        .success();
+    bin()
+        .env("PWSTASH_MASTER", "third-secret")
+        .env("PWSTASH_ENTRY_PASSWORD", "other")
+        .args(["add", "-f"])
+        .arg(&third)
+        .args(["--service", "github", "--username", "eve"])
+        .assert()
+        .success();
+    bin()
+        .env("PWSTASH_MASTER", "third-secret")
+        .env("PWSTASH_SOURCE_MASTER", "dest-secret")
+        .args(["import", "-f"])
+        .arg(&third)
+        .args(["--from"])
+        .arg(&dest)
+        .args(["--all", "--on-conflict", "skip"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("skipped"));
+}
+
+#[test]
 fn find_and_rename() {
     let dir = TempDir::new().unwrap();
     init(&dir);

@@ -39,6 +39,8 @@ Master and entry passwords are **never** taken from command-line arguments.
 - Non-interactive / tests:
   - `PWSTASH_MASTER` — vault password
   - `PWSTASH_NEW_MASTER` — new vault password for `passwd`
+  - `PWSTASH_DEST_MASTER` — destination vault password for `export`
+  - `PWSTASH_SOURCE_MASTER` — source vault password for `import`
   - `PWSTASH_ENTRY_PASSWORD` — password for `add` / `update`
 
 `init` prompts twice unless `PWSTASH_MASTER` is set.
@@ -59,6 +61,10 @@ pwstash mv --from github --to gh
 pwstash update --service github --username me --generate --length 24
 pwstash delete --service github --yes
 pwstash passwd
+pwstash backup -o vault.bak
+pwstash export -o other.stash --all
+pwstash export -o other.stash --service github --move
+pwstash import --from other.stash --all --on-conflict skip
 pwstash gui
 
 # or an explicit file
@@ -73,6 +79,8 @@ pwstash add -f vault.stash --service github --username me
 `--generate` on `add` / `update` creates a random password (letters, digits, symbols; default length 20, `--length` 8–128) and does not print it. `delete` asks you to type `y` and press Enter unless you pass `--yes`. Non-interactive runs (no TTY) require `--yes`.
 
 `passwd` unlocks with the current master password, then prompts twice for a new one (or `PWSTASH_NEW_MASTER`). The vault is rewritten with a fresh salt.
+
+`backup` copies the encrypted vault file as-is (no decrypt). `export` copies selected services (`--service`, repeatable) or `--all` into another vault; `--move` deletes them here after a successful copy. `import` pulls entries from `--from`. Destination/source master passwords: `PWSTASH_DEST_MASTER` / `PWSTASH_SOURCE_MASTER`. `--on-conflict` is `fail` (default), `skip`, `overwrite`, or `ask` (compare fields, then s/o/a). Identical entries are skipped without asking.
 
 If the vault file does not exist, commands that need it fail with a hint to run `pwstash init`. Nothing is created automatically.
 
@@ -101,6 +109,9 @@ pwstash gui -f vault.stash
 | `e` | Edit selected entry (blank password keeps the current one) |
 | `r` | Rename selected service |
 | `d` | Delete with confirmation |
+| `Space` | Mark / unmark for export |
+| `E` / `M` | Export copy / export move marked (or selected) entries |
+| `I` | Import from another vault file |
 | `P` | Change master password |
 | `q` / `Ctrl-C` | Quit (`Esc` backs out of a form first) |
 

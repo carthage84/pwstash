@@ -18,6 +18,20 @@ pub struct PasswordEntry {
     pub notes: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictDecision {
+    Skip,
+    Overwrite,
+    Abort,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TransferReport {
+    pub copied: Vec<String>,
+    pub overwritten: Vec<String>,
+    pub skipped: Vec<String>,
+}
+
 impl PasswordEntry {
     pub fn matches(&self, query: &str) -> bool {
         let q = query.trim().to_lowercase();
@@ -29,6 +43,45 @@ impl PasswordEntry {
             || self.url.to_lowercase().contains(&q)
             || self.notes.to_lowercase().contains(&q)
     }
+
+    pub fn equivalent(&self, other: &Self) -> bool {
+        self.username == other.username
+            && self.password == other.password
+            && self.url == other.url
+            && self.notes == other.notes
+    }
+
+    pub fn diff_lines(&self, incoming: &Self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if self.username != incoming.username {
+            lines.push(format!(
+                "username: {} -> {}",
+                self.username, incoming.username
+            ));
+        }
+        if self.password != incoming.password {
+            lines.push("password: differs".to_string());
+        }
+        if self.url != incoming.url {
+            lines.push(format!(
+                "url: {} -> {}",
+                display_blank(&self.url),
+                display_blank(&incoming.url)
+            ));
+        }
+        if self.notes != incoming.notes {
+            lines.push(format!(
+                "notes: {} -> {}",
+                display_blank(&self.notes),
+                display_blank(&incoming.notes)
+            ));
+        }
+        lines
+    }
+}
+
+fn display_blank(value: &str) -> &str {
+    if value.is_empty() { "(empty)" } else { value }
 }
 
 impl std::fmt::Debug for PasswordEntry {
@@ -178,6 +231,84 @@ impl Vault {
         });
         sort_entries(&mut self.entries);
         self.save()
+    }
+
+    pub fn selected_entries(&self, names: &[String]) -> Result<Vec<PasswordEntry>, StashError> {
+        self.ensure_unlocked()?;
+        let mut out = Vec::with_capacity(names.len());
+        for name in names {
+            match self.get(name) {
+                Some(entry) => out.push(entry.clone()),
+                None => {
+                    return Err(StashError::ServiceNotFound {
+                        service: name.clone(),
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn ingest(
+        &mut self,
+        incoming: Vec<PasswordEntry>,
+        mut on_conflict: impl FnMut(
+            &PasswordEntry,
+            &PasswordEntry,
+        ) -> Result<ConflictDecision, StashError>,
+    ) -> Result<TransferReport, StashError> {
+        self.ensure_unlocked()?;
+        let mut report = TransferReport::default();
+        let mut ready = Vec::new();
+        let mut conflicts = Vec::new();
+        for entry in incoming {
+            match self.get(&entry.service) {
+                Some(existing) if existing.equivalent(&entry) => {
+                    report.skipped.push(entry.service.clone());
+                }
+                Some(existing) => conflicts.push((existing.clone(), entry)),
+                None => ready.push(entry),
+            }
+        }
+        for entry in ready {
+            report.copied.push(entry.service.clone());
+            self.entries.push(entry);
+        }
+        if !report.copied.is_empty() {
+            sort_entries(&mut self.entries);
+            self.save()?;
+        }
+        for (existing, incoming) in conflicts {
+            let service = incoming.service.clone();
+            match on_conflict(&existing, &incoming)? {
+                ConflictDecision::Skip => report.skipped.push(service),
+                ConflictDecision::Overwrite => {
+                    self.replace_entry(incoming);
+                    report.overwritten.push(service);
+                    self.save()?;
+                }
+                ConflictDecision::Abort => return Err(StashError::TransferAborted),
+            }
+        }
+        Ok(report)
+    }
+
+    pub(crate) fn absorb_new(&mut self, entry: PasswordEntry) {
+        self.entries.push(entry);
+        sort_entries(&mut self.entries);
+    }
+
+    pub(crate) fn replace_entry(&mut self, entry: PasswordEntry) {
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|e| e.service.eq_ignore_ascii_case(&entry.service))
+        {
+            self.entries[index] = entry;
+        } else {
+            self.entries.push(entry);
+        }
+        sort_entries(&mut self.entries);
     }
 
     pub fn find(&self, query: &str) -> Vec<&PasswordEntry> {
@@ -457,6 +588,35 @@ mod tests {
         assert!(matches!(err, StashError::DuplicateService { .. }));
         v.rename("gh", "GH").unwrap();
         assert_eq!(v.get("GH").unwrap().service, "GH");
+    }
+
+    #[test]
+    fn ingest_copy_skip_overwrite() {
+        let (mut src, dir) = vault();
+        src.add_full("mail", "ada", "old", "https://a", "n1")
+            .unwrap();
+        src.add("extra", "bob", "pw").unwrap();
+        let dest_path = dir.path().join("dest.stash");
+        let mut dest = Vault::create(&dest_path, "dest-secret").unwrap();
+        dest.add_full("mail", "ada", "old", "https://a", "n1")
+            .unwrap();
+        dest.add_full("clash", "x", "pw", "", "old note").unwrap();
+        src.add_full("clash", "y", "pw", "", "new note").unwrap();
+
+        let incoming = src.entries().to_vec();
+        let report = dest
+            .ingest(incoming, |_, _| Ok(ConflictDecision::Overwrite))
+            .unwrap();
+        assert!(
+            report
+                .skipped
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case("mail"))
+        );
+        assert!(report.copied.iter().any(|s| s == "extra"));
+        assert!(report.overwritten.iter().any(|s| s == "clash"));
+        assert_eq!(dest.get("clash").unwrap().username, "y");
+        assert_eq!(dest.get("extra").unwrap().username, "bob");
     }
 
     #[test]

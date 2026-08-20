@@ -1,10 +1,12 @@
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use ratatui::widgets::ListState;
 
 use crate::clipboard::{self, CLIPBOARD_TTL};
-use crate::vault::{PasswordEntry, Vault};
+use crate::vault::{ConflictDecision, PasswordEntry, TransferReport, Vault};
 
 const STATUS_TTL: Duration = Duration::from_secs(4);
 pub const IDLE_LOCK: Duration = Duration::from_secs(120);
@@ -20,6 +22,15 @@ pub enum Mode {
     Rename,
     Help,
     Locked,
+    TransferSetup,
+    TransferConflict,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferKind {
+    ExportCopy,
+    ExportMove,
+    Import,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,6 +51,7 @@ impl FormState {
             Mode::Edit => 4,
             Mode::Rename => 1,
             Mode::ChangeMaster => 2,
+            Mode::TransferSetup => 3,
             Mode::Locked => 1,
             _ => 0,
         }
@@ -54,7 +66,9 @@ impl FormState {
             }
             (Mode::Add, 3) | (Mode::Edit, 2) => &mut self.url,
             (Mode::Add, 4) | (Mode::Edit, 3) => &mut self.notes,
-            (Mode::Rename, _) => &mut self.service,
+            (Mode::Rename, _) | (Mode::TransferSetup, 0) => &mut self.service,
+            (Mode::TransferSetup, 1) => &mut self.password,
+            (Mode::TransferSetup, 2) => &mut self.confirm,
             (Mode::ChangeMaster, 1) => &mut self.confirm,
             _ => &mut self.service,
         }
@@ -88,6 +102,13 @@ pub struct App {
     clipboard_clear_at: Option<Instant>,
     last_input: Instant,
     idle_timeout: Duration,
+    pub marked: HashSet<String>,
+    pub transfer_kind: Option<TransferKind>,
+    transfer_dest: Option<Vault>,
+    transfer_queue: Vec<PasswordEntry>,
+    pub conflict_existing: Option<PasswordEntry>,
+    pub conflict_incoming: Option<PasswordEntry>,
+    transfer_report: TransferReport,
 }
 
 impl App {
@@ -105,6 +126,13 @@ impl App {
             clipboard_clear_at: None,
             last_input: Instant::now(),
             idle_timeout: IDLE_LOCK,
+            marked: HashSet::new(),
+            transfer_kind: None,
+            transfer_dest: None,
+            transfer_queue: Vec::new(),
+            conflict_existing: None,
+            conflict_incoming: None,
+            transfer_report: TransferReport::default(),
         };
         app.sync_list_state();
         app
@@ -142,6 +170,8 @@ impl App {
         self.filter.clear();
         self.form = FormState::default();
         self.status = None;
+        self.marked.clear();
+        self.clear_transfer();
         self.vault.lock();
         self.sync_list_state();
         self.mode = Mode::Locked;
@@ -305,6 +335,251 @@ impl App {
         self.mode = Mode::Rename;
     }
 
+    pub fn is_marked(&self, service: &str) -> bool {
+        self.marked
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(service))
+    }
+
+    pub fn toggle_mark(&mut self) {
+        let Some(service) = self.selected_service() else {
+            self.flash("No entry selected");
+            return;
+        };
+        if let Some(existing) = self
+            .marked
+            .iter()
+            .find(|name| name.eq_ignore_ascii_case(&service))
+            .cloned()
+        {
+            self.marked.remove(&existing);
+        } else {
+            self.marked.insert(service);
+        }
+    }
+
+    fn services_to_transfer(&self) -> Vec<String> {
+        if self.marked.is_empty() {
+            self.selected_service().into_iter().collect()
+        } else {
+            self.marked.iter().cloned().collect()
+        }
+    }
+
+    fn clear_transfer(&mut self) {
+        self.transfer_kind = None;
+        self.transfer_dest = None;
+        self.transfer_queue.clear();
+        self.conflict_existing = None;
+        self.conflict_incoming = None;
+        self.transfer_report = TransferReport::default();
+    }
+
+    pub fn begin_export(&mut self, move_entries: bool) {
+        if self.services_to_transfer().is_empty() {
+            self.flash("No entry selected");
+            return;
+        }
+        self.form = FormState::default();
+        self.transfer_kind = Some(if move_entries {
+            TransferKind::ExportMove
+        } else {
+            TransferKind::ExportCopy
+        });
+        self.mode = Mode::TransferSetup;
+    }
+
+    pub fn begin_import(&mut self) {
+        self.form = FormState::default();
+        self.transfer_kind = Some(TransferKind::Import);
+        self.mode = Mode::TransferSetup;
+    }
+
+    fn submit_transfer_setup(&mut self) -> Result<()> {
+        let path = PathBuf::from(self.form.service.trim());
+        if path.as_os_str().is_empty() {
+            self.flash("Path must not be empty");
+            return Ok(());
+        }
+        let master = self.form.password.clone();
+        let kind = self.transfer_kind;
+        match kind {
+            Some(TransferKind::Import) => match Vault::open(&path, &master) {
+                Ok(source) => {
+                    let incoming = source.entries().to_vec();
+                    self.start_ingest(incoming, false);
+                }
+                Err(err) => self.flash(err.to_string()),
+            },
+            Some(TransferKind::ExportCopy | TransferKind::ExportMove) => {
+                let dest = if path.exists() {
+                    Vault::open(&path, &master)
+                } else {
+                    if master != self.form.confirm {
+                        self.flash("Master passwords do not match");
+                        return Ok(());
+                    }
+                    Vault::create(&path, &master)
+                };
+                match dest {
+                    Ok(dest) => {
+                        let names = self.services_to_transfer();
+                        match self.vault.selected_entries(&names) {
+                            Ok(incoming) => {
+                                self.transfer_dest = Some(dest);
+                                self.start_ingest(
+                                    incoming,
+                                    matches!(kind, Some(TransferKind::ExportMove)),
+                                );
+                            }
+                            Err(err) => self.flash(err.to_string()),
+                        }
+                    }
+                    Err(err) => self.flash(err.to_string()),
+                }
+            }
+            None => self.flash("No transfer in progress"),
+        }
+        Ok(())
+    }
+
+    fn start_ingest(&mut self, incoming: Vec<PasswordEntry>, move_after: bool) {
+        let dest = if matches!(self.transfer_kind, Some(TransferKind::Import)) {
+            &mut self.vault
+        } else if let Some(dest) = self.transfer_dest.as_mut() {
+            dest
+        } else {
+            self.flash("No destination vault");
+            return;
+        };
+        let mut ready = Vec::new();
+        let mut conflicts = Vec::new();
+        for entry in incoming {
+            match dest.get(&entry.service) {
+                Some(existing) if existing.equivalent(&entry) => {
+                    self.transfer_report.skipped.push(entry.service.clone());
+                }
+                Some(existing) => conflicts.push((existing.clone(), entry)),
+                None => ready.push(entry),
+            }
+        }
+        for entry in ready {
+            self.transfer_report.copied.push(entry.service.clone());
+            dest.absorb_new(entry);
+        }
+        if let Err(err) = dest.save() {
+            self.flash(err.to_string());
+            self.clear_transfer();
+            self.mode = Mode::List;
+            return;
+        }
+        self.transfer_queue = conflicts
+            .into_iter()
+            .map(|(_, incoming)| incoming)
+            .collect();
+        // store existing at conflict time from dest
+        if move_after {
+            self.transfer_kind = Some(TransferKind::ExportMove);
+        }
+        self.form = FormState::default();
+        if self.transfer_queue.is_empty() {
+            self.finish_transfer();
+        } else {
+            self.show_next_conflict();
+        }
+    }
+
+    fn show_next_conflict(&mut self) {
+        let Some(incoming) = self.transfer_queue.first().cloned() else {
+            self.finish_transfer();
+            return;
+        };
+        let dest = if matches!(self.transfer_kind, Some(TransferKind::Import)) {
+            &self.vault
+        } else if let Some(dest) = self.transfer_dest.as_ref() {
+            dest
+        } else {
+            self.finish_transfer();
+            return;
+        };
+        let existing = dest.get(&incoming.service).cloned();
+        self.conflict_incoming = Some(incoming);
+        self.conflict_existing = existing;
+        self.mode = Mode::TransferConflict;
+    }
+
+    pub fn resolve_conflict(&mut self, decision: ConflictDecision) -> Result<()> {
+        let Some(incoming) = self.transfer_queue.first().cloned() else {
+            self.finish_transfer();
+            return Ok(());
+        };
+        match decision {
+            ConflictDecision::Abort => {
+                self.flash("Transfer aborted");
+                self.finish_transfer();
+                return Ok(());
+            }
+            ConflictDecision::Skip => {
+                self.transfer_report.skipped.push(incoming.service.clone());
+                self.transfer_queue.remove(0);
+            }
+            ConflictDecision::Overwrite => {
+                let dest = if matches!(self.transfer_kind, Some(TransferKind::Import)) {
+                    &mut self.vault
+                } else if let Some(dest) = self.transfer_dest.as_mut() {
+                    dest
+                } else {
+                    self.finish_transfer();
+                    return Ok(());
+                };
+                dest.replace_entry(incoming.clone());
+                if let Err(err) = dest.save() {
+                    self.flash(err.to_string());
+                    self.finish_transfer();
+                    return Ok(());
+                }
+                self.transfer_report
+                    .overwritten
+                    .push(incoming.service.clone());
+                self.transfer_queue.remove(0);
+            }
+        }
+        if self.transfer_queue.is_empty() {
+            self.finish_transfer();
+        } else {
+            self.show_next_conflict();
+        }
+        Ok(())
+    }
+
+    fn finish_transfer(&mut self) {
+        let moved = matches!(self.transfer_kind, Some(TransferKind::ExportMove));
+        if moved {
+            let names: Vec<_> = self
+                .transfer_report
+                .copied
+                .iter()
+                .chain(self.transfer_report.overwritten.iter())
+                .cloned()
+                .collect();
+            for name in names {
+                let _ = self.vault.delete(&name);
+                self.marked.remove(&name);
+            }
+        }
+        let report = format!(
+            "Copied {}, overwrote {}, skipped {}",
+            self.transfer_report.copied.len(),
+            self.transfer_report.overwritten.len(),
+            self.transfer_report.skipped.len()
+        );
+        self.clear_transfer();
+        self.form = FormState::default();
+        self.mode = Mode::List;
+        self.sync_list_state();
+        self.flash(report);
+    }
+
     pub fn begin_delete(&mut self) {
         if self.selected_entry().is_none() {
             self.flash("No entry selected");
@@ -326,8 +601,11 @@ impl App {
             | Mode::ConfirmDelete
             | Mode::ChangeMaster
             | Mode::Rename
+            | Mode::TransferSetup
+            | Mode::TransferConflict
             | Mode::Help => {
                 self.form = FormState::default();
+                self.clear_transfer();
                 self.mode = Mode::List;
             }
             Mode::List | Mode::Locked => {}
@@ -346,11 +624,16 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename | Mode::Locked => {
+            Mode::Add
+            | Mode::Edit
+            | Mode::ChangeMaster
+            | Mode::Rename
+            | Mode::TransferSetup
+            | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push_str(text);
             }
-            Mode::List | Mode::ConfirmDelete | Mode::Help => {}
+            Mode::List | Mode::ConfirmDelete | Mode::Help | Mode::TransferConflict => {}
         }
     }
 
@@ -362,11 +645,16 @@ impl App {
                 self.revealed = false;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename | Mode::Locked => {
+            Mode::Add
+            | Mode::Edit
+            | Mode::ChangeMaster
+            | Mode::Rename
+            | Mode::TransferSetup
+            | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push(c);
             }
-            Mode::List | Mode::ConfirmDelete | Mode::Help => {}
+            Mode::List | Mode::ConfirmDelete | Mode::Help | Mode::TransferConflict => {}
         }
     }
 
@@ -377,11 +665,16 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename | Mode::Locked => {
+            Mode::Add
+            | Mode::Edit
+            | Mode::ChangeMaster
+            | Mode::Rename
+            | Mode::TransferSetup
+            | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).pop();
             }
-            Mode::List | Mode::ConfirmDelete | Mode::Help => {}
+            Mode::List | Mode::ConfirmDelete | Mode::Help | Mode::TransferConflict => {}
         }
     }
 
@@ -478,6 +771,7 @@ impl App {
                     Err(err) => self.flash(err.to_string()),
                 }
             }
+            Mode::TransferSetup => self.submit_transfer_setup()?,
             Mode::Locked => {
                 let password = self.form.password.clone();
                 match self.vault.unlock(&password) {
@@ -584,6 +878,16 @@ mod tests {
         let entry = app.vault.get("github").unwrap();
         assert_eq!(entry.username, "new");
         assert_eq!(entry.password, "newpass");
+    }
+
+    #[test]
+    fn mark_toggles_selection() {
+        let (mut app, _dir) = app_with_entries();
+        assert!(!app.is_marked("github"));
+        app.toggle_mark();
+        assert!(app.is_marked("github"));
+        app.toggle_mark();
+        assert!(!app.is_marked("github"));
     }
 
     #[test]

@@ -30,6 +30,8 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         Mode::ConfirmDelete => render_confirm(app, frame, area),
         Mode::Help => render_help(frame, area),
         Mode::Locked => render_locked(app, frame, area),
+        Mode::TransferSetup => render_transfer_setup(app, frame, area),
+        Mode::TransferConflict => render_transfer_conflict(app, frame, area),
         Mode::List | Mode::Search => {}
     }
 }
@@ -68,7 +70,12 @@ fn render_body(app: &mut App, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|&i| {
             let entry = &app.vault.entries()[i];
-            ListItem::new(format!("{}  ({})", entry.service, entry.username))
+            let mark = if app.is_marked(&entry.service) {
+                "*"
+            } else {
+                " "
+            };
+            ListItem::new(format!("{mark} {}  ({})", entry.service, entry.username))
         })
         .collect();
 
@@ -144,6 +151,8 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         Mode::ConfirmDelete => "[y] delete  [n] cancel",
         Mode::Help => "Esc or ? close help",
         Mode::Locked => "Enter unlock  q quit",
+        Mode::TransferSetup => "Tab next  Enter continue  Esc cancel",
+        Mode::TransferConflict => "[s]kip  [o]verwrite  [a]bort",
     };
     let text = if let Some((msg, _)) = &app.status {
         Line::from(vec![
@@ -252,6 +261,72 @@ fn field_style(app: &App, index: usize) -> Style {
     }
 }
 
+fn render_transfer_setup(app: &App, frame: &mut Frame, area: Rect) {
+    let popup = centered_rect(70, 12, area);
+    frame.render_widget(Clear, popup);
+    let title = match app.transfer_kind {
+        Some(crate::app::TransferKind::Import) => "Import from vault",
+        Some(crate::app::TransferKind::ExportMove) => "Move entries to vault",
+        _ => "Copy entries to vault",
+    };
+    let password_display: String = "*".repeat(app.form.password.chars().count());
+    let confirm_display: String = "*".repeat(app.form.confirm.chars().count());
+    let mut lines = vec![
+        Line::from(vec![
+            Span::raw("Path:     "),
+            Span::styled(app.form.service.clone(), field_style(app, 0)),
+        ]),
+        Line::from(vec![
+            Span::raw("Master:   "),
+            Span::styled(password_display, field_style(app, 1)),
+        ]),
+    ];
+    if !matches!(app.transfer_kind, Some(crate::app::TransferKind::Import)) {
+        lines.push(Line::from(vec![
+            Span::raw("Confirm:  "),
+            Span::styled(confirm_display, field_style(app, 2)),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "Confirm is required only when creating a new vault.",
+    ));
+    let form = Paragraph::new(lines).block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .title(title)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White).bg(Color::Black)),
+    );
+    frame.render_widget(form, popup);
+}
+
+fn render_transfer_conflict(app: &App, frame: &mut Frame, area: Rect) {
+    let popup = centered_rect(70, 14, area);
+    frame.render_widget(Clear, popup);
+    let mut lines = Vec::new();
+    if let (Some(existing), Some(incoming)) = (&app.conflict_existing, &app.conflict_incoming) {
+        lines.push(Line::from(format!("Conflict: {}", incoming.service)));
+        lines.push(Line::from(""));
+        for line in existing.diff_lines(incoming) {
+            lines.push(Line::from(line));
+        }
+        if existing.diff_lines(incoming).is_empty() {
+            lines.push(Line::from("Entries look the same."));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from("s skip   o overwrite   a abort"));
+    let text = Paragraph::new(lines).block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .title("Conflict")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White).bg(Color::Black)),
+    );
+    frame.render_widget(text, popup);
+}
+
 fn render_rename(app: &App, frame: &mut Frame, area: Rect) {
     let popup = centered_rect(60, 8, area);
     frame.render_widget(Clear, popup);
@@ -344,6 +419,8 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Line::from("y               copy username (30s)"),
         Line::from("g               add with generated password"),
         Line::from("a / e / r / d   add / edit / rename / delete"),
+        Line::from("space           mark for export"),
+        Line::from("E / M / I       export copy / export move / import"),
         Line::from("P               change master password"),
         Line::from("Ctrl-G          generate in a form"),
         Line::from("q / Ctrl-C      quit"),

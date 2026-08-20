@@ -268,6 +268,21 @@ fn add_generate_does_not_print_password() {
 }
 
 #[test]
+fn delete_without_yes_fails_when_stdin_is_not_a_tty() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    add(&dir, "github", "ada", "hunter2");
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["delete", "-f"])
+        .arg(vault_file(&dir))
+        .args(["--service", "github"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--yes"));
+}
+
+#[test]
 fn delete_missing_service_skips_prompt() {
     let dir = TempDir::new().unwrap();
     init(&dir);

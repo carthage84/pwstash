@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -136,7 +136,10 @@ fn confirm_delete(service: &str, yes: bool) -> anyhow::Result<bool> {
     if yes {
         return Ok(true);
     }
-    eprint!("Delete {service}? [y/N] ");
+    if !io::stdin().is_terminal() {
+        anyhow::bail!("refusing to delete {service} without confirmation. Re-run with --yes.");
+    }
+    eprintln!("Delete {service}? Type y and press Enter, or n to cancel.");
     io::stderr().flush()?;
     let mut line = String::new();
     io::stdin().read_line(&mut line)?;

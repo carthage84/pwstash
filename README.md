@@ -63,7 +63,7 @@ pwstash add -f vault.stash --service github --username me
 
 `list` prints service and username only. `get` prints username and password to the terminal (it will sit in scrollback). Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.
 
-`--generate` on `add` / `update` creates a random password (letters, digits, symbols; default length 20, `--length` 8–128) and does not print it. `delete` asks for confirmation unless you pass `--yes`.
+`--generate` on `add` / `update` creates a random password (letters, digits, symbols; default length 20, `--length` 8–128) and does not print it. `delete` asks you to type `y` and press Enter unless you pass `--yes`. Non-interactive runs (no TTY) require `--yes`.
 
 If the vault file does not exist, commands that need it fail with a hint to run `pwstash init`. Nothing is created automatically.
 

@@ -45,6 +45,7 @@ Master and entry passwords are **never** taken from command-line arguments.
 ## Commands
 
 ```bash
+pwstash              # opens the TUI (same as `pwstash gui`)
 pwstash init
 pwstash add --service github --username me
 pwstash get --service github
@@ -61,9 +62,14 @@ pwstash add -f vault.stash --service github --username me
 
 `list` prints service and username only. `get` prints username and password to the terminal (it will sit in scrollback). Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.
 
+If the vault file does not exist, commands that need it fail with a hint to run `pwstash init`. Nothing is created automatically.
+
 ## Terminal UI
 
+`pwstash` with no subcommand opens the TUI on the default vault. `pwstash gui` does the same.
+
 ```bash
+pwstash
 pwstash gui -f vault.stash
 ```
 

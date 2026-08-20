@@ -10,7 +10,7 @@ pub struct CommandLineArgs {
     pub file: Option<PathBuf>,
 
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]

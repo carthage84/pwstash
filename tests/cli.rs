@@ -207,6 +207,30 @@ fn global_file_flag_before_subcommand() {
 }
 
 #[test]
+fn no_args_missing_vault_hints_init() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("missing.stash");
+    bin()
+        .env("PWSTASH_FILE", &file)
+        .env_remove("PWSTASH_MASTER")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("pwstash init"))
+        .stderr(predicate::str::contains("missing.stash"));
+}
+
+#[test]
+fn help_lists_commands_without_subcommand() {
+    bin()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage:"))
+        .stdout(predicate::str::contains("init"))
+        .stdout(predicate::str::contains("gui"));
+}
+
+#[test]
 fn existing_local_vault_used_without_flag() {
     let dir = TempDir::new().unwrap();
     let local = dir.path().join("pwstash.stash");

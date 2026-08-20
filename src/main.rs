@@ -29,7 +29,7 @@ fn main() -> ExitCode {
 fn run() -> anyhow::Result<()> {
     let cli = CommandLineArgs::parse();
     let file = paths::resolve_vault_path(cli.file.as_deref());
-    match cli.command {
+    match cli.command.unwrap_or(Commands::Gui) {
         Commands::Init => {
             let master = read_new_master_password()?;
             Vault::create(&file, &master)?;
@@ -96,6 +96,12 @@ fn run() -> anyhow::Result<()> {
 }
 
 fn open_vault(path: &Path) -> anyhow::Result<Vault> {
+    if !path.exists() {
+        anyhow::bail!(
+            "no vault found at {}. Run `pwstash init` to create one.",
+            path.display()
+        );
+    }
     let master = read_master_password()?;
     Vault::open(path, &master).with_context(|| format!("opening {}", path.display()))
 }

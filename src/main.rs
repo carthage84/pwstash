@@ -8,6 +8,7 @@ use ratatui::backend::CrosstermBackend;
 
 use pwstash::app::App;
 use pwstash::args::{CommandLineArgs, Commands};
+use pwstash::clipboard;
 use pwstash::event::Event;
 use pwstash::handler::handle_key_events;
 use pwstash::master_password::{
@@ -51,6 +52,21 @@ fn run() -> anyhow::Result<()> {
                 }
                 None => println!("No password found for {service}"),
             }
+        }
+        Commands::Copy { file, service } => {
+            let vault = open_vault(&file)?;
+            let password = vault
+                .get(&service)
+                .ok_or_else(|| pwstash::error::StashError::ServiceNotFound {
+                    service: service.clone(),
+                })?
+                .password
+                .clone();
+            clipboard::copy_text(&password)?;
+            let secs = clipboard::clipboard_ttl().as_secs().max(1);
+            println!("Copied password for {service}. Clearing clipboard in {secs}s...");
+            clipboard::wait_then_clear()?;
+            println!("Clipboard cleared.");
         }
         Commands::List { file } => {
             let vault = open_vault(&file)?;

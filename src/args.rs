@@ -34,6 +34,13 @@ pub enum Commands {
         #[arg(short, long)]
         service: String,
     },
+    /// Copy a service password to the clipboard (clears after 30s)
+    Copy {
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
+        #[arg(short, long)]
+        service: String,
+    },
     /// List services and usernames
     List {
         #[arg(short, long, default_value = DEFAULT_VAULT)]

@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
@@ -181,13 +179,57 @@ fn copy_does_not_print_password() {
 }
 
 #[test]
-fn default_file_in_cwd() {
+fn default_file_from_env() {
     let dir = TempDir::new().unwrap();
+    let file = dir.path().join("from-env.stash");
     bin()
-        .current_dir(dir.path())
         .env("PWSTASH_MASTER", "master-secret")
+        .env("PWSTASH_FILE", &file)
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created vault"));
+    assert!(file.exists());
+}
+
+#[test]
+fn global_file_flag_before_subcommand() {
+    let dir = TempDir::new().unwrap();
+    let file = vault_file(&dir);
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["-f"])
+        .arg(&file)
         .arg("init")
         .assert()
         .success();
-    assert!(Path::new(&dir.path().join("pwstash.stash")).exists());
+    assert!(file.exists());
+}
+
+#[test]
+fn existing_local_vault_used_without_flag() {
+    let dir = TempDir::new().unwrap();
+    let local = dir.path().join("pwstash.stash");
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["init", "-f"])
+        .arg(&local)
+        .assert()
+        .success();
+    bin()
+        .current_dir(dir.path())
+        .env_remove("PWSTASH_FILE")
+        .env("PWSTASH_MASTER", "master-secret")
+        .env("PWSTASH_ENTRY_PASSWORD", "hunter2")
+        .args(["add", "--service", "github", "--username", "ada"])
+        .assert()
+        .success();
+    bin()
+        .current_dir(dir.path())
+        .env_remove("PWSTASH_FILE")
+        .env("PWSTASH_MASTER", "master-secret")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("github"));
 }

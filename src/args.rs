@@ -2,11 +2,13 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-pub const DEFAULT_VAULT: &str = "pwstash.stash";
-
 #[derive(Parser, Debug)]
 #[command(version, about = "Encrypted password vault", long_about = None)]
 pub struct CommandLineArgs {
+    /// Path to the vault file
+    #[arg(short, long, global = true, value_name = "PATH")]
+    pub file: Option<PathBuf>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -14,14 +16,9 @@ pub struct CommandLineArgs {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Initialize a new vault
-    Init {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
-    },
+    Init,
     /// Add credentials
     Add {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
         #[arg(short, long)]
         service: String,
         #[arg(short, long)]
@@ -29,27 +26,18 @@ pub enum Commands {
     },
     /// Print credentials for a service
     Get {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
         #[arg(short, long)]
         service: String,
     },
     /// Copy a service password to the clipboard (clears after 30s)
     Copy {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
         #[arg(short, long)]
         service: String,
     },
     /// List services and usernames
-    List {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
-    },
+    List,
     /// Update credentials for a service
     Update {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
         #[arg(short, long)]
         service: String,
         #[arg(short, long)]
@@ -57,16 +45,11 @@ pub enum Commands {
     },
     /// Remove credentials for a service
     Delete {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
         #[arg(short, long)]
         service: String,
     },
     /// Open the terminal UI
-    Gui {
-        #[arg(short, long, default_value = DEFAULT_VAULT)]
-        file: PathBuf,
-    },
+    Gui,
 }
 
 impl CommandLineArgs {

@@ -2,9 +2,7 @@ use std::io;
 use std::panic;
 
 use anyhow::Result;
-use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-};
+use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::Terminal;
@@ -26,12 +24,7 @@ impl<B: Backend> Tui<B> {
 
     pub fn init(&mut self) -> Result<()> {
         terminal::enable_raw_mode()?;
-        execute!(
-            io::stdout(),
-            EnterAlternateScreen,
-            EnableMouseCapture,
-            EnableBracketedPaste
-        )?;
+        execute!(io::stdout(), EnterAlternateScreen, EnableBracketedPaste)?;
 
         let panic_hook = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
@@ -64,11 +57,6 @@ impl<B: Backend> Tui<B> {
 
 fn reset() -> Result<()> {
     terminal::disable_raw_mode()?;
-    execute!(
-        io::stdout(),
-        DisableBracketedPaste,
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen)?;
     Ok(())
 }

@@ -1,8 +1,12 @@
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph, Wrap};
+
+/// Width of labels like `Service:  ` / `Path:     ` / `New name: `.
+const FIELD_LABEL_WIDTH: u16 = 10;
+const LOCKED_LABEL_WIDTH: u16 = 8;
 
 use crate::app::{App, Mode};
 
@@ -45,10 +49,10 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
-            title,
+            title.clone(),
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         ),
-        Span::raw(filter),
+        Span::raw(filter.clone()),
     ]))
     .block(
         Block::bordered()
@@ -57,6 +61,9 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
             .title_alignment(Alignment::Left),
     );
     frame.render_widget(header, area);
+    if app.mode == Mode::Search {
+        set_header_cursor(frame, area, &title, &filter);
+    }
 }
 
 fn render_body(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -248,6 +255,35 @@ fn render_form(app: &App, frame: &mut Frame, area: Rect) {
             .style(Style::default().fg(Color::White).bg(Color::Black)),
     );
     frame.render_widget(form, popup);
+    let (line, value) = add_edit_cursor_value(app);
+    set_labeled_cursor(frame, popup, line, FIELD_LABEL_WIDTH, &value);
+}
+
+fn add_edit_cursor_value(app: &App) -> (u16, String) {
+    if app.mode == Mode::Add {
+        let value = match app.form.field {
+            1 => app.form.username.clone(),
+            2 => "*".repeat(app.form.password.chars().count()),
+            3 => app.form.url.clone(),
+            4 => app.form.notes.clone(),
+            _ => app.form.service.clone(),
+        };
+        (app.form.field as u16, value)
+    } else {
+        match app.form.field {
+            1 => (
+                2,
+                if app.form.password.is_empty() {
+                    String::new()
+                } else {
+                    "*".repeat(app.form.password.chars().count())
+                },
+            ),
+            2 => (3, app.form.url.clone()),
+            3 => (4, app.form.notes.clone()),
+            _ => (1, app.form.username.clone()),
+        }
+    }
 }
 
 fn field_style(app: &App, index: usize) -> Style {
@@ -305,6 +341,12 @@ fn render_transfer_setup(app: &App, frame: &mut Frame, area: Rect) {
             .style(Style::default().fg(Color::White).bg(Color::Black)),
     );
     frame.render_widget(form, popup);
+    let (line, value) = match app.form.field {
+        1 => (1, "*".repeat(app.form.password.chars().count())),
+        2 => (2, "*".repeat(app.form.confirm.chars().count())),
+        _ => (0, app.form.service.clone()),
+    };
+    set_labeled_cursor(frame, popup, line, FIELD_LABEL_WIDTH, &value);
 }
 
 fn render_transfer_conflict(app: &App, frame: &mut Frame, area: Rect) {
@@ -356,6 +398,7 @@ fn render_rename(app: &App, frame: &mut Frame, area: Rect) {
             .style(Style::default().fg(Color::White).bg(Color::Black)),
     );
     frame.render_widget(form, popup);
+    set_labeled_cursor(frame, popup, 0, FIELD_LABEL_WIDTH, &app.form.service);
 }
 
 fn render_change_master(app: &App, frame: &mut Frame, area: Rect) {
@@ -385,6 +428,12 @@ fn render_change_master(app: &App, frame: &mut Frame, area: Rect) {
             .style(Style::default().fg(Color::White).bg(Color::Black)),
     );
     frame.render_widget(form, popup);
+    let (line, value) = if app.form.field == 1 {
+        (1, "*".repeat(app.form.confirm.chars().count()))
+    } else {
+        (0, "*".repeat(app.form.password.chars().count()))
+    };
+    set_labeled_cursor(frame, popup, line, FIELD_LABEL_WIDTH, &value);
 }
 
 fn render_locked(app: &App, frame: &mut Frame, area: Rect) {
@@ -397,7 +446,7 @@ fn render_locked(app: &App, frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::raw("Master: "),
             Span::styled(
-                stars,
+                stars.clone(),
                 Style::default()
                     .fg(Color::Black)
                     .bg(ACCENT)
@@ -416,6 +465,7 @@ fn render_locked(app: &App, frame: &mut Frame, area: Rect) {
             .style(Style::default().fg(Color::White).bg(Color::Black)),
     );
     frame.render_widget(text, popup);
+    set_centered_labeled_cursor(frame, popup, 2, LOCKED_LABEL_WIDTH, &stars);
 }
 
 fn render_help(frame: &mut Frame, area: Rect) {
@@ -466,6 +516,74 @@ fn render_confirm(app: &App, frame: &mut Frame, area: Rect) {
             .title_alignment(Alignment::Center),
     );
     frame.render_widget(text, popup);
+}
+
+fn display_width(s: &str) -> u16 {
+    u16::try_from(s.chars().count()).unwrap_or(u16::MAX)
+}
+
+fn inner_block(area: Rect) -> Rect {
+    area.inner(Margin::new(1, 1))
+}
+
+fn clamp_cursor(inner: Rect, x: u16, y: u16) -> Option<Position> {
+    if inner.width == 0 || inner.height == 0 {
+        return None;
+    }
+    let max_x = inner.x.saturating_add(inner.width.saturating_sub(1));
+    let max_y = inner.y.saturating_add(inner.height.saturating_sub(1));
+    Some(Position::new(
+        x.clamp(inner.x, max_x),
+        y.clamp(inner.y, max_y),
+    ))
+}
+
+fn labeled_cursor(popup: Rect, line: u16, label_width: u16, value: &str) -> Option<Position> {
+    let inner = inner_block(popup);
+    let x = inner
+        .x
+        .saturating_add(label_width)
+        .saturating_add(display_width(value));
+    let y = inner.y.saturating_add(line);
+    clamp_cursor(inner, x, y)
+}
+
+fn set_labeled_cursor(frame: &mut Frame, popup: Rect, line: u16, label_width: u16, value: &str) {
+    if let Some(pos) = labeled_cursor(popup, line, label_width, value) {
+        frame.set_cursor_position(pos);
+    }
+}
+
+fn set_centered_labeled_cursor(
+    frame: &mut Frame,
+    popup: Rect,
+    line: u16,
+    label_width: u16,
+    value: &str,
+) {
+    let inner = inner_block(popup);
+    let content_width = label_width.saturating_add(display_width(value));
+    let start = inner
+        .x
+        .saturating_add(inner.width.saturating_sub(content_width) / 2);
+    let x = start
+        .saturating_add(label_width)
+        .saturating_add(display_width(value));
+    let y = inner.y.saturating_add(line);
+    if let Some(pos) = clamp_cursor(inner, x, y) {
+        frame.set_cursor_position(pos);
+    }
+}
+
+fn set_header_cursor(frame: &mut Frame, area: Rect, title: &str, filter: &str) {
+    let inner = inner_block(area);
+    let x = inner
+        .x
+        .saturating_add(display_width(title))
+        .saturating_add(display_width(filter));
+    if let Some(pos) = clamp_cursor(inner, x, inner.y) {
+        frame.set_cursor_position(pos);
+    }
 }
 
 fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
@@ -540,10 +658,7 @@ mod tests {
         app.cancel_mode();
         app.begin_import();
         terminal.draw(|f| render(&mut app, f)).unwrap();
-        assert!(buffer_has(
-            terminal.backend().buffer(),
-            "source vault path"
-        ));
+        assert!(buffer_has(terminal.backend().buffer(), "source vault path"));
         assert!(!buffer_has(
             terminal.backend().buffer(),
             "Confirm is required"
@@ -574,5 +689,65 @@ mod tests {
         terminal.draw(|f| render(&mut app, f)).unwrap();
         assert!(buffer_has(terminal.backend().buffer(), "Locked"));
         assert!(!buffer_has(terminal.backend().buffer(), "github"));
+    }
+
+    #[test]
+    fn labeled_cursor_sits_after_the_value() {
+        let popup = Rect::new(10, 5, 40, 10);
+        let pos = labeled_cursor(popup, 0, 10, "github").unwrap();
+        assert_eq!(pos, Position::new(27, 6));
+    }
+
+    #[test]
+    fn caret_follows_the_active_form_field() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("ui.stash");
+        let vault = Vault::create(&path, "master").unwrap();
+        let mut app = App::new(vault);
+        let area = Rect::new(0, 0, 80, 24);
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        app.begin_add();
+        app.form.service = "gh".into();
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        let popup = centered_rect(70, 15, area);
+        assert_eq!(
+            terminal.get_cursor_position().unwrap(),
+            labeled_cursor(popup, 0, FIELD_LABEL_WIDTH, "gh").unwrap()
+        );
+
+        app.form.next_field(app.mode, app.transfer_kind);
+        app.form.username = "ada".into();
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        assert_eq!(
+            terminal.get_cursor_position().unwrap(),
+            labeled_cursor(popup, 1, FIELD_LABEL_WIDTH, "ada").unwrap()
+        );
+
+        app.begin_search();
+        app.filter = "git".into();
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        let header = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(5),
+                Constraint::Length(3),
+            ])
+            .split(area)[0];
+        let title = format!(" pwstash — {} ", app.vault.path().display());
+        let filter = format!("  /{}", app.filter);
+        let inner = inner_block(header);
+        let expected = clamp_cursor(
+            inner,
+            inner
+                .x
+                .saturating_add(display_width(&title))
+                .saturating_add(display_width(&filter)),
+            inner.y,
+        )
+        .unwrap();
+        assert_eq!(terminal.get_cursor_position().unwrap(), expected);
     }
 }

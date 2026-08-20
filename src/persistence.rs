@@ -67,6 +67,27 @@ pub fn read_vault_file(path: &Path) -> Result<VaultFile, StashError> {
     VaultFile::decode(&data)
 }
 
+pub fn copy_vault_file(src: &Path, dest: &Path) -> Result<(), StashError> {
+    if !src.exists() {
+        return Err(StashError::FileNotFound);
+    }
+    if dest.exists() {
+        return Err(StashError::FileAlreadyExists {
+            path: dest.display().to_string(),
+        });
+    }
+    let parent = dest
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(src, dest)?;
+    set_owner_readwrite(dest);
+    Ok(())
+}
+
 pub fn write_vault_file(path: &Path, vault_file: &VaultFile) -> Result<(), StashError> {
     let parent = path
         .parent()

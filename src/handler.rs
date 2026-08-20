@@ -14,10 +14,16 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> Result<()> {
     match app.mode {
         Mode::List => handle_list(key_event, app),
         Mode::Search => handle_search(key_event, app),
-        Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename => handle_form(key_event, app),
+        Mode::Add
+        | Mode::Edit
+        | Mode::ChangeMaster
+        | Mode::Rename
+        | Mode::TransferSetup
+        | Mode::TransferRename => handle_form(key_event, app),
         Mode::ConfirmDelete => handle_confirm(key_event, app),
         Mode::Help => handle_help(key_event, app),
         Mode::Locked => handle_unlock(key_event, app),
+        Mode::TransferConflict => handle_transfer_conflict(key_event, app),
     }
 }
 
@@ -40,6 +46,10 @@ fn handle_list(key_event: KeyEvent, app: &mut App) -> Result<()> {
         KeyCode::Char('e') => app.begin_edit(),
         KeyCode::Char('r') => app.begin_rename(),
         KeyCode::Char('d') => app.begin_delete(),
+        KeyCode::Char(' ') => app.toggle_mark(),
+        KeyCode::Char('E') => app.begin_export(false),
+        KeyCode::Char('M') => app.begin_export(true),
+        KeyCode::Char('I') => app.begin_import(),
         _ => {}
     }
     Ok(())
@@ -59,8 +69,10 @@ fn handle_search(key_event: KeyEvent, app: &mut App) -> Result<()> {
 }
 
 fn handle_form(key_event: KeyEvent, app: &mut App) -> Result<()> {
-    if !matches!(app.mode, Mode::ChangeMaster | Mode::Rename)
-        && key_event.modifiers.contains(KeyModifiers::CONTROL)
+    if !matches!(
+        app.mode,
+        Mode::ChangeMaster | Mode::Rename | Mode::TransferSetup | Mode::TransferRename
+    ) && key_event.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key_event.code, KeyCode::Char('g') | KeyCode::Char('G'))
     {
         app.generate_form_password();
@@ -68,19 +80,36 @@ fn handle_form(key_event: KeyEvent, app: &mut App) -> Result<()> {
     }
     match key_event.code {
         KeyCode::Esc => app.cancel_mode(),
-        KeyCode::Tab | KeyCode::Down => app.form.next_field(app.mode),
-        KeyCode::BackTab | KeyCode::Up => app.form.prev_field(app.mode),
+        KeyCode::Tab | KeyCode::Down => app.form.next_field(app.mode, app.transfer_kind),
+        KeyCode::BackTab | KeyCode::Up => app.form.prev_field(app.mode, app.transfer_kind),
         KeyCode::Enter => {
-            let last = app.form.field + 1 >= app.form.field_count(app.mode);
+            let last = app.form.field + 1 >= app.form.field_count(app.mode, app.transfer_kind);
             if last {
                 app.submit_form()?;
             } else {
-                app.form.next_field(app.mode);
+                app.form.next_field(app.mode, app.transfer_kind);
             }
         }
         KeyCode::Backspace => app.backspace(),
         KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             app.type_char(c);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_transfer_conflict(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    match key_event.code {
+        KeyCode::Char('s') | KeyCode::Char('S') => {
+            app.resolve_conflict(crate::vault::ConflictDecision::Skip)?
+        }
+        KeyCode::Char('o') | KeyCode::Char('O') => {
+            app.resolve_conflict(crate::vault::ConflictDecision::Overwrite)?
+        }
+        KeyCode::Char('r') | KeyCode::Char('R') => app.begin_conflict_rename(),
+        KeyCode::Esc | KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Char('q') => {
+            app.resolve_conflict(crate::vault::ConflictDecision::Abort)?
         }
         _ => {}
     }
@@ -176,5 +205,40 @@ mod tests {
         app.lock();
         handle_key_events(key(KeyCode::Char('q')), &mut app).unwrap();
         assert!(!app.running);
+    }
+
+    #[test]
+    fn import_enter_on_master_opens_conflict() {
+        let (mut app, dir) = app();
+        let src_path = dir.path().join("src.stash");
+        let mut src = Vault::create(&src_path, "src").unwrap();
+        src.add("github", "eve", "other").unwrap();
+
+        handle_key_events(key(KeyCode::Char('I')), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::TransferSetup);
+        assert_eq!(app.form.field_count(app.mode, app.transfer_kind), 2);
+
+        app.form.service = src_path.to_string_lossy().into();
+        app.form.password = "src".into();
+        handle_key_events(key(KeyCode::Enter), &mut app).unwrap();
+        assert_eq!(app.form.field, 1);
+        handle_key_events(key(KeyCode::Enter), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::TransferConflict);
+    }
+
+    #[test]
+    fn transfer_conflict_rename_opens_prefilled_form() {
+        let (mut app, dir) = app();
+        let src_path = dir.path().join("src.stash");
+        let mut src = Vault::create(&src_path, "src").unwrap();
+        src.add("github", "eve", "other").unwrap();
+        app.transfer_kind = Some(crate::app::TransferKind::Import);
+        app.start_ingest(src.entries().to_vec(), false);
+        assert_eq!(app.mode, Mode::TransferConflict);
+        handle_key_events(key(KeyCode::Char('r')), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::TransferRename);
+        assert_eq!(app.form.service, "github-1");
+        handle_key_events(key(KeyCode::Esc), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::TransferConflict);
     }
 }

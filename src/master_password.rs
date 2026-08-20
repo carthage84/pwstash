@@ -4,6 +4,8 @@ use crate::error::StashError;
 
 const MASTER_ENV: &str = "PWSTASH_MASTER";
 const NEW_MASTER_ENV: &str = "PWSTASH_NEW_MASTER";
+const DEST_MASTER_ENV: &str = "PWSTASH_DEST_MASTER";
+const SOURCE_MASTER_ENV: &str = "PWSTASH_SOURCE_MASTER";
 const ENTRY_ENV: &str = "PWSTASH_ENTRY_PASSWORD";
 
 pub fn read_master_password() -> Result<String, StashError> {
@@ -47,6 +49,31 @@ pub fn read_changed_master_password() -> Result<String, StashError> {
         });
     }
     Ok(first)
+}
+
+pub fn read_dest_master_password(create: bool) -> Result<String, StashError> {
+    if let Some(from_env) = from_env(DEST_MASTER_ENV) {
+        return Ok(from_env);
+    }
+    if create {
+        let first = prompt("New destination master password: ")?;
+        let second = prompt("Confirm destination master password: ")?;
+        if first != second {
+            return Err(StashError::PasswordMismatch);
+        }
+        if first.is_empty() {
+            return Err(StashError::EmptyField {
+                field: "master password",
+            });
+        }
+        Ok(first)
+    } else {
+        prompt("Destination master password: ")
+    }
+}
+
+pub fn read_source_master_password() -> Result<String, StashError> {
+    from_env(SOURCE_MASTER_ENV).map_or_else(|| prompt("Source master password: "), Ok)
 }
 
 pub fn read_entry_password() -> Result<String, StashError> {

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Encrypted password vault", long_about = None)]
@@ -82,8 +82,46 @@ pub enum Commands {
     },
     /// Change the vault master password
     Passwd,
+    /// Copy the encrypted vault file
+    Backup {
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Copy or move entries into another vault
+    Export {
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        service: Vec<String>,
+        #[arg(long)]
+        all: bool,
+        /// Delete exported entries from this vault
+        #[arg(long = "move")]
+        move_entries: bool,
+        #[arg(long, value_enum, default_value_t = OnConflict::Fail)]
+        on_conflict: OnConflict,
+    },
+    /// Copy entries from another vault into this one
+    Import {
+        #[arg(long)]
+        from: PathBuf,
+        #[arg(long)]
+        service: Vec<String>,
+        #[arg(long)]
+        all: bool,
+        #[arg(long, value_enum, default_value_t = OnConflict::Fail)]
+        on_conflict: OnConflict,
+    },
     /// Open the terminal UI
     Gui,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+pub enum OnConflict {
+    Skip,
+    Overwrite,
+    Fail,
+    Ask,
 }
 
 impl CommandLineArgs {

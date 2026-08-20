@@ -81,7 +81,7 @@ fn init_add_get_list_update_delete() {
         .env("PWSTASH_MASTER", "master-secret")
         .args(["delete", "-f"])
         .arg(vault_file(&dir))
-        .args(["--service", "github"])
+        .args(["--service", "github", "--yes"])
         .assert()
         .success();
 
@@ -228,6 +228,72 @@ fn help_lists_commands_without_subcommand() {
         .stdout(predicate::str::contains("Usage:"))
         .stdout(predicate::str::contains("init"))
         .stdout(predicate::str::contains("gui"));
+}
+
+#[test]
+fn add_generate_does_not_print_password() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["add", "-f"])
+        .arg(vault_file(&dir))
+        .args([
+            "--service",
+            "generated",
+            "--username",
+            "ada",
+            "--generate",
+            "--length",
+            "16",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("generated password"));
+
+    let output = bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["get", "-f"])
+        .arg(vault_file(&dir))
+        .args(["--service", "generated"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let password = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Password: "))
+        .expect("password line");
+    assert_eq!(password.len(), 16);
+}
+
+#[test]
+fn delete_without_yes_fails_when_stdin_is_not_a_tty() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    add(&dir, "github", "ada", "hunter2");
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["delete", "-f"])
+        .arg(vault_file(&dir))
+        .args(["--service", "github"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--yes"));
+}
+
+#[test]
+fn delete_missing_service_skips_prompt() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["delete", "-f"])
+        .arg(vault_file(&dir))
+        .args(["--service", "missing"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no entry for missing"));
 }
 
 #[test]

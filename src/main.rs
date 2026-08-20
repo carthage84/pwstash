@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -10,6 +10,7 @@ use pwstash::app::App;
 use pwstash::args::{CommandLineArgs, Commands};
 use pwstash::clipboard;
 use pwstash::event::Event;
+use pwstash::generate;
 use pwstash::handler::handle_key_events;
 use pwstash::master_password::{
     read_entry_password, read_master_password, read_new_master_password,
@@ -35,11 +36,20 @@ fn run() -> anyhow::Result<()> {
             Vault::create(&file, &master)?;
             println!("Created vault {}", file.display());
         }
-        Commands::Add { service, username } => {
+        Commands::Add {
+            service,
+            username,
+            generate: generate_flag,
+            length,
+        } => {
             let mut vault = open_vault(&file)?;
-            let password = read_entry_password()?;
+            let password = entry_password(generate_flag, length)?;
             vault.add(&service, &username, &password)?;
-            println!("Added {service}");
+            if generate_flag {
+                println!("Added {service} with a generated password");
+            } else {
+                println!("Added {service}");
+            }
         }
         Commands::Get { service } => {
             let vault = open_vault(&file)?;
@@ -76,14 +86,33 @@ fn run() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Update { service, username } => {
+        Commands::Update {
+            service,
+            username,
+            generate: generate_flag,
+            length,
+        } => {
             let mut vault = open_vault(&file)?;
-            let password = read_entry_password()?;
+            let password = entry_password(generate_flag, length)?;
             vault.update(&service, &username, &password)?;
-            println!("Updated {service}");
+            if generate_flag {
+                println!("Updated {service} with a generated password");
+            } else {
+                println!("Updated {service}");
+            }
         }
-        Commands::Delete { service } => {
+        Commands::Delete { service, yes } => {
             let mut vault = open_vault(&file)?;
+            if vault.get(&service).is_none() {
+                return Err(pwstash::error::StashError::ServiceNotFound {
+                    service: service.clone(),
+                }
+                .into());
+            }
+            if !confirm_delete(&service, yes)? {
+                println!("Aborted.");
+                return Ok(());
+            }
             vault.delete(&service)?;
             println!("Deleted {service}");
         }
@@ -93,6 +122,28 @@ fn run() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn entry_password(generate_flag: bool, length: usize) -> anyhow::Result<String> {
+    if generate_flag {
+        Ok(generate::generate(length)?)
+    } else {
+        Ok(read_entry_password()?)
+    }
+}
+
+fn confirm_delete(service: &str, yes: bool) -> anyhow::Result<bool> {
+    if yes {
+        return Ok(true);
+    }
+    if !io::stdin().is_terminal() {
+        anyhow::bail!("refusing to delete {service} without confirmation. Re-run with --yes.");
+    }
+    eprintln!("Delete {service}? Type y and press Enter, or n to cancel.");
+    io::stderr().flush()?;
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    Ok(matches!(line.trim(), "y" | "Y" | "yes"))
 }
 
 fn open_vault(path: &Path) -> anyhow::Result<Vault> {

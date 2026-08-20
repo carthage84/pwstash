@@ -16,6 +16,7 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> Result<()> {
         Mode::Search => handle_search(key_event, app),
         Mode::Add | Mode::Edit => handle_form(key_event, app),
         Mode::ConfirmDelete => handle_confirm(key_event, app),
+        Mode::Help => handle_help(key_event, app),
     }
 }
 
@@ -27,6 +28,9 @@ fn handle_list(key_event: KeyEvent, app: &mut App) -> Result<()> {
         KeyCode::Char('/') => app.begin_search(),
         KeyCode::Enter | KeyCode::Char('p') => app.toggle_reveal(),
         KeyCode::Char('c') => app.copy_password()?,
+        KeyCode::Char('y') => app.copy_username()?,
+        KeyCode::Char('g') => app.begin_add_generated(),
+        KeyCode::Char('?') => app.begin_help(),
         KeyCode::Char('a') => app.begin_add(),
         KeyCode::Char('e') => app.begin_edit(),
         KeyCode::Char('d') => app.begin_delete(),
@@ -49,6 +53,12 @@ fn handle_search(key_event: KeyEvent, app: &mut App) -> Result<()> {
 }
 
 fn handle_form(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    if key_event.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key_event.code, KeyCode::Char('g') | KeyCode::Char('G'))
+    {
+        app.generate_form_password();
+        return Ok(());
+    }
     match key_event.code {
         KeyCode::Esc => app.cancel_mode(),
         KeyCode::Tab | KeyCode::Down => app.form.next_field(app.mode),
@@ -65,6 +75,14 @@ fn handle_form(key_event: KeyEvent, app: &mut App) -> Result<()> {
         KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             app.type_char(c);
         }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_help(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    match key_event.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => app.cancel_mode(),
         _ => {}
     }
     Ok(())
@@ -116,5 +134,17 @@ mod tests {
         assert_eq!(app.mode, Mode::List);
         handle_key_events(key(KeyCode::Char('q')), &mut app).unwrap();
         assert!(!app.running);
+    }
+
+    #[test]
+    fn help_and_generate_keys() {
+        let (mut app, _dir) = app();
+        handle_key_events(key(KeyCode::Char('?')), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::Help);
+        handle_key_events(key(KeyCode::Esc), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::List);
+        handle_key_events(key(KeyCode::Char('g')), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::Add);
+        assert!(app.form.password.len() >= crate::generate::MIN_LENGTH);
     }
 }

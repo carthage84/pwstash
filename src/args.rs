@@ -23,6 +23,12 @@ pub enum Commands {
         service: String,
         #[arg(short, long)]
         username: String,
+        /// Generate a random password instead of prompting
+        #[arg(long)]
+        generate: bool,
+        /// Length of a generated password (8–128)
+        #[arg(long, default_value_t = crate::generate::DEFAULT_LENGTH)]
+        length: usize,
     },
     /// Print credentials for a service
     Get {
@@ -42,11 +48,20 @@ pub enum Commands {
         service: String,
         #[arg(short, long)]
         username: String,
+        /// Generate a random password instead of prompting
+        #[arg(long)]
+        generate: bool,
+        /// Length of a generated password (8–128)
+        #[arg(long, default_value_t = crate::generate::DEFAULT_LENGTH)]
+        length: usize,
     },
     /// Remove credentials for a service
     Delete {
         #[arg(short, long)]
         service: String,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        yes: bool,
     },
     /// Open the terminal UI
     Gui,

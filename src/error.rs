@@ -59,4 +59,7 @@ pub enum StashError {
 
     #[error("clipboard error: {0}")]
     Clipboard(String),
+
+    #[error("generated password length must be between {min} and {max}")]
+    InvalidGenerateLength { min: usize, max: usize },
 }

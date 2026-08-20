@@ -324,6 +324,50 @@ fn delete_without_yes_fails_when_stdin_is_not_a_tty() {
 }
 
 #[test]
+fn find_and_rename() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    add(&dir, "GitHub", "ada", "hunter2");
+    add(&dir, "mail", "bob", "secret");
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["find", "-f"])
+        .arg(vault_file(&dir))
+        .arg("git")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("GitHub"))
+        .stdout(predicate::str::contains("mail").not());
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["find", "-f"])
+        .arg(vault_file(&dir))
+        .arg("nope")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No matching entries."));
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["mv", "-f"])
+        .arg(vault_file(&dir))
+        .args(["--from", "github", "--to", "gh"])
+        .assert()
+        .success();
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["list", "-f"])
+        .arg(vault_file(&dir))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("gh"))
+        .stdout(predicate::str::contains("GitHub").not());
+}
+
+#[test]
 fn passwd_changes_master_and_keeps_entries() {
     let dir = TempDir::new().unwrap();
     init(&dir);

@@ -26,6 +26,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     match app.mode {
         Mode::Add | Mode::Edit => render_form(app, frame, area),
         Mode::ChangeMaster => render_change_master(app, frame, area),
+        Mode::Rename => render_rename(app, frame, area),
         Mode::ConfirmDelete => render_confirm(app, frame, area),
         Mode::Help => render_help(frame, area),
         Mode::Locked => render_locked(app, frame, area),
@@ -139,6 +140,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         Mode::Add => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
         Mode::Edit => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
         Mode::ChangeMaster => "Tab next  Enter save  Esc cancel",
+        Mode::Rename => "Enter save  Esc cancel",
         Mode::ConfirmDelete => "[y] delete  [n] cancel",
         Mode::Help => "Esc or ? close help",
         Mode::Locked => "Enter unlock  q quit",
@@ -250,6 +252,27 @@ fn field_style(app: &App, index: usize) -> Style {
     }
 }
 
+fn render_rename(app: &App, frame: &mut Frame, area: Rect) {
+    let popup = centered_rect(60, 8, area);
+    frame.render_widget(Clear, popup);
+    let form = Paragraph::new(vec![
+        Line::from(vec![
+            Span::raw("New name: "),
+            Span::styled(app.form.service.clone(), field_style(app, 0)),
+        ]),
+        Line::from(""),
+        Line::from("Enter saves, Esc cancels."),
+    ])
+    .block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .title("Rename")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White).bg(Color::Black)),
+    );
+    frame.render_widget(form, popup);
+}
+
 fn render_change_master(app: &App, frame: &mut Frame, area: Rect) {
     let popup = centered_rect(60, 10, area);
     frame.render_widget(Clear, popup);
@@ -320,7 +343,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Line::from("c               copy password (30s)"),
         Line::from("y               copy username (30s)"),
         Line::from("g               add with generated password"),
-        Line::from("a / e / d       add / edit / delete"),
+        Line::from("a / e / r / d   add / edit / rename / delete"),
         Line::from("P               change master password"),
         Line::from("Ctrl-G          generate in a form"),
         Line::from("q / Ctrl-C      quit"),

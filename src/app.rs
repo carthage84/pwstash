@@ -17,6 +17,7 @@ pub enum Mode {
     Edit,
     ConfirmDelete,
     ChangeMaster,
+    Rename,
     Help,
     Locked,
 }
@@ -37,6 +38,7 @@ impl FormState {
         match mode {
             Mode::Add => 5,
             Mode::Edit => 4,
+            Mode::Rename => 1,
             Mode::ChangeMaster => 2,
             Mode::Locked => 1,
             _ => 0,
@@ -52,6 +54,7 @@ impl FormState {
             }
             (Mode::Add, 3) | (Mode::Edit, 2) => &mut self.url,
             (Mode::Add, 4) | (Mode::Edit, 3) => &mut self.notes,
+            (Mode::Rename, _) => &mut self.service,
             (Mode::ChangeMaster, 1) => &mut self.confirm,
             _ => &mut self.service,
         }
@@ -153,18 +156,11 @@ impl App {
     }
 
     pub fn filtered_indices(&self) -> Vec<usize> {
-        let q = self.filter.to_lowercase();
         self.vault
             .entries()
             .iter()
             .enumerate()
-            .filter(|(_, entry)| {
-                q.is_empty()
-                    || entry.service.to_lowercase().contains(&q)
-                    || entry.username.to_lowercase().contains(&q)
-                    || entry.url.to_lowercase().contains(&q)
-                    || entry.notes.to_lowercase().contains(&q)
-            })
+            .filter(|(_, entry)| entry.matches(&self.filter))
             .map(|(i, _)| i)
             .collect()
     }
@@ -297,6 +293,18 @@ impl App {
         self.mode = Mode::ChangeMaster;
     }
 
+    pub fn begin_rename(&mut self) {
+        let Some(service) = self.selected_service() else {
+            self.flash("No entry selected");
+            return;
+        };
+        self.form = FormState {
+            service,
+            ..FormState::default()
+        };
+        self.mode = Mode::Rename;
+    }
+
     pub fn begin_delete(&mut self) {
         if self.selected_entry().is_none() {
             self.flash("No entry selected");
@@ -313,7 +321,12 @@ impl App {
                 self.sync_list_state();
                 self.mode = Mode::List;
             }
-            Mode::Add | Mode::Edit | Mode::ConfirmDelete | Mode::ChangeMaster | Mode::Help => {
+            Mode::Add
+            | Mode::Edit
+            | Mode::ConfirmDelete
+            | Mode::ChangeMaster
+            | Mode::Rename
+            | Mode::Help => {
                 self.form = FormState::default();
                 self.mode = Mode::List;
             }
@@ -333,7 +346,7 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Locked => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push_str(text);
             }
@@ -349,7 +362,7 @@ impl App {
                 self.revealed = false;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Locked => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push(c);
             }
@@ -364,7 +377,7 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Locked => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).pop();
             }
@@ -423,6 +436,30 @@ impl App {
                         self.mode = Mode::List;
                         self.revealed = false;
                         self.flash(format!("Updated {service}"));
+                    }
+                    Err(err) => self.flash(err.to_string()),
+                }
+            }
+            Mode::Rename => {
+                let Some(from) = self.selected_service() else {
+                    self.flash("No entry selected");
+                    self.mode = Mode::List;
+                    return Ok(());
+                };
+                let to = self.form.service.clone();
+                match self.vault.rename(&from, &to) {
+                    Ok(()) => {
+                        self.form = FormState::default();
+                        self.mode = Mode::List;
+                        if let Some(idx) = self
+                            .filtered_indices()
+                            .into_iter()
+                            .find(|&i| self.vault.entries()[i].service == to)
+                        {
+                            self.selected = idx;
+                        }
+                        self.sync_list_state();
+                        self.flash(format!("Renamed to {to}"));
                     }
                     Err(err) => self.flash(err.to_string()),
                 }
@@ -547,6 +584,18 @@ mod tests {
         let entry = app.vault.get("github").unwrap();
         assert_eq!(entry.username, "new");
         assert_eq!(entry.password, "newpass");
+    }
+
+    #[test]
+    fn rename_via_form() {
+        let (mut app, _dir) = app_with_entries();
+        app.begin_rename();
+        assert_eq!(app.mode, Mode::Rename);
+        app.form.service = "gh".into();
+        app.submit_form().unwrap();
+        assert_eq!(app.mode, Mode::List);
+        assert!(app.vault.get("github").is_none());
+        assert!(app.vault.get("gh").is_some());
     }
 
     #[test]

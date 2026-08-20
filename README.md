@@ -6,13 +6,21 @@ The vault is a single local file. A master password derives an Argon2id key; ent
 
 ## Install
 
-Requires current stable Rust (1.97+).
+Download a binary from the [Releases](https://github.com/carthage84/pwstash/releases) page:
+
+- Windows x64: `pwstash-<tag>-x86_64-pc-windows-msvc.zip`
+- Linux x64: `pwstash-<tag>-x86_64-unknown-linux-gnu.tar.gz`
+- macOS Apple Silicon: `pwstash-<tag>-aarch64-apple-darwin.tar.gz`
+
+Each archive includes `LICENSE` and `README.md`. Checksums are in `SHA256SUMS.txt` on the same release.
+
+Or build from source (Rust 1.97+):
 
 ```bash
 cargo install --path .
 ```
 
-Or run from the repo:
+From a clone:
 
 ```bash
 cargo run --release -- init
@@ -131,3 +139,5 @@ cargo fmt --all -- --check
 ```
 
 Pull requests run the same checks on Ubuntu and Windows.
+
+Publishing a GitHub Release (tag like `v0.1.0`) starts a workflow that builds Windows, Linux, and macOS binaries and attaches them to that release.

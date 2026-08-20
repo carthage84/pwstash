@@ -6,9 +6,9 @@ use anyhow::Context;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-use pwstash::app::{App, AppResult};
+use pwstash::app::App;
 use pwstash::args::{CommandLineArgs, Commands};
-use pwstash::event::{Event, EventHandler};
+use pwstash::event::Event;
 use pwstash::handler::handle_key_events;
 use pwstash::master_password::{
     read_entry_password, read_master_password, read_new_master_password,
@@ -78,8 +78,8 @@ fn run() -> anyhow::Result<()> {
             println!("Deleted {service}");
         }
         Commands::Gui { file } => {
-            let _vault = open_vault(&file)?;
-            run_gui().map_err(|err| anyhow::anyhow!("{err}"))?;
+            let vault = open_vault(&file)?;
+            run_gui(vault)?;
         }
     }
     Ok(())
@@ -90,11 +90,11 @@ fn open_vault(path: &Path) -> anyhow::Result<Vault> {
     Vault::open(path, &master).with_context(|| format!("opening {}", path.display()))
 }
 
-fn run_gui() -> AppResult<()> {
-    let mut app = App::new();
-    let backend = CrosstermBackend::new(io::stderr());
+fn run_gui(vault: Vault) -> anyhow::Result<()> {
+    let mut app = App::new(vault);
+    let backend = CrosstermBackend::new(io::stdout());
     let terminal = Terminal::new(backend)?;
-    let events = EventHandler::new(250);
+    let events = pwstash::event::EventHandler::new(250);
     let mut tui = Tui::new(terminal, events);
     tui.init()?;
 
@@ -103,8 +103,8 @@ fn run_gui() -> AppResult<()> {
         match tui.events.next()? {
             Event::Tick => app.tick(),
             Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
-            Event::Mouse(_) => {}
-            Event::Resize(_, _) => {}
+            Event::Paste(text) => app.handle_paste(&text),
+            Event::Mouse(_) | Event::Resize(_, _) => {}
         }
     }
 

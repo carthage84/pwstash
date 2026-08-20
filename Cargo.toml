@@ -5,16 +5,18 @@ authors = ["carthage84 <carthage84@gmail.com>"]
 license = "MIT"
 edition = "2024"
 rust-version = "1.97"
+description = "Simple encrypted password vault with CLI and terminal UI"
 
 [dependencies]
+arboard = "3"
 aes-gcm = "0.10"
 anyhow = "1"
 argon2 = "0.5"
-clap = { version = "4.5.5", features = ["derive"] }
-clap_derive = "4.5.5"
-crossterm = "0.27.0"
+clap = { version = "4.6", features = ["derive"] }
+crossterm = "0.29"
+ctrlc = "3.4"
 rand = "0.8"
-ratatui = "0.26.3"
+ratatui = "0.30"
 rpassword = "7.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -23,3 +25,10 @@ zeroize = { version = "1", features = ["std", "derive"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "z"
+panic = "abort"
+strip = "debuginfo"

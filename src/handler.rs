@@ -1,28 +1,120 @@
-use crate::app::{App, AppResult};
+use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Handles the key events and updates the state of [`App`].
-pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
+use crate::app::{App, Mode};
+
+pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    if key_event.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key_event.code, KeyCode::Char('c') | KeyCode::Char('C'))
+    {
+        app.quit();
+        return Ok(());
+    }
+
+    match app.mode {
+        Mode::List => handle_list(key_event, app),
+        Mode::Search => handle_search(key_event, app),
+        Mode::Add | Mode::Edit => handle_form(key_event, app),
+        Mode::ConfirmDelete => handle_confirm(key_event, app),
+    }
+}
+
+fn handle_list(key_event: KeyEvent, app: &mut App) -> Result<()> {
     match key_event.code {
-        // Exit application on `ESC` or `q`
-        KeyCode::Esc | KeyCode::Char('q') => {
-            app.quit();
-        }
-        // Exit application on `Ctrl-C`
-        KeyCode::Char('c') | KeyCode::Char('C') => {
-            if key_event.modifiers == KeyModifiers::CONTROL {
-                app.quit();
-            }
-        }
-        // Counter handlers
-        KeyCode::Right => {
-            app.increment_counter();
-        }
-        KeyCode::Left => {
-            app.decrement_counter();
-        }
-        // Other handlers you could add here.
+        KeyCode::Esc | KeyCode::Char('q') => app.quit(),
+        KeyCode::Down | KeyCode::Char('j') => app.select_next(),
+        KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
+        KeyCode::Char('/') => app.begin_search(),
+        KeyCode::Enter | KeyCode::Char('p') => app.toggle_reveal(),
+        KeyCode::Char('c') => app.copy_password()?,
+        KeyCode::Char('a') => app.begin_add(),
+        KeyCode::Char('e') => app.begin_edit(),
+        KeyCode::Char('d') => app.begin_delete(),
         _ => {}
     }
     Ok(())
+}
+
+fn handle_search(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    match key_event.code {
+        KeyCode::Esc => app.cancel_mode(),
+        KeyCode::Enter => app.confirm_search(),
+        KeyCode::Backspace => app.backspace(),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.type_char(c);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_form(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    match key_event.code {
+        KeyCode::Esc => app.cancel_mode(),
+        KeyCode::Tab | KeyCode::Down => app.form.next_field(app.mode),
+        KeyCode::BackTab | KeyCode::Up => app.form.prev_field(app.mode),
+        KeyCode::Enter => {
+            let last = app.form.field + 1 >= app.form.field_count(app.mode);
+            if last {
+                app.submit_form()?;
+            } else {
+                app.form.next_field(app.mode);
+            }
+        }
+        KeyCode::Backspace => app.backspace(),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.type_char(c);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_confirm(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    match key_event.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => app.confirm_delete()?,
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc | KeyCode::Char('q') => {
+            app.cancel_mode();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vault::Vault;
+    use crossterm::event::{KeyEventKind, KeyEventState};
+    use tempfile::TempDir;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    fn app() -> (App, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("h.stash");
+        let mut vault = Vault::create(&path, "master").unwrap();
+        vault.add("github", "ada", "pw").unwrap();
+        (App::new(vault), dir)
+    }
+
+    #[test]
+    fn list_keys() {
+        let (mut app, _dir) = app();
+        handle_key_events(key(KeyCode::Char('j')), &mut app).unwrap();
+        assert_eq!(app.selected_entry().unwrap().service, "github");
+        handle_key_events(key(KeyCode::Char('a')), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::Add);
+        handle_key_events(key(KeyCode::Esc), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::List);
+        handle_key_events(key(KeyCode::Char('q')), &mut app).unwrap();
+        assert!(!app.running);
+    }
 }

@@ -16,6 +16,7 @@ pub mod handler;
 /// Command line arguments
 pub mod args;
 
+pub mod clipboard;
 pub mod encryption;
 pub mod error;
 pub mod master_password;

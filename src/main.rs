@@ -118,7 +118,7 @@ fn run() -> anyhow::Result<()> {
             vault.update_full(
                 &service,
                 &username,
-                &password,
+                Some(&password),
                 url.as_deref(),
                 notes.as_deref(),
             )?;

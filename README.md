@@ -96,7 +96,7 @@ pwstash gui -f vault.stash
 | `Ctrl-G` | Generate a password in the add/edit form |
 | `?` | Key help |
 | `a` | Add entry |
-| `e` | Edit selected username/password |
+| `e` | Edit selected entry (blank password keeps the current one) |
 | `d` | Delete with confirmation |
 | `P` | Change master password |
 | `q` / `Ctrl-C` | Quit (`Esc` backs out of a form first) |

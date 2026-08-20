@@ -177,20 +177,22 @@ impl Vault {
         username: &str,
         password: &str,
     ) -> Result<(), StashError> {
-        self.update_full(service, username, password, None, None)
+        self.update_full(service, username, Some(password), None, None)
     }
 
     pub fn update_full(
         &mut self,
         service: &str,
         username: &str,
-        password: &str,
+        password: Option<&str>,
         url: Option<&str>,
         notes: Option<&str>,
     ) -> Result<(), StashError> {
         self.ensure_unlocked()?;
         let username = require_trimmed(username, "username")?;
-        require_password(password)?;
+        if let Some(password) = password {
+            require_password(password)?;
+        }
         let index = self
             .entries
             .iter()
@@ -199,7 +201,9 @@ impl Vault {
                 service: service.to_string(),
             })?;
         self.entries[index].username = username;
-        self.entries[index].password = password.to_string();
+        if let Some(password) = password {
+            self.entries[index].password = password.to_string();
+        }
         if let Some(url) = url {
             self.entries[index].url = optional_text(url);
         }
@@ -390,11 +394,25 @@ mod tests {
         let entry = v.get("mail").unwrap();
         assert_eq!(entry.url, "https://a.example");
         assert_eq!(entry.notes, "note");
-        v.update_full("mail", "ada", "pw3", None, Some("new note"))
+        v.update_full("mail", "ada", Some("pw3"), None, Some("new note"))
             .unwrap();
         let entry = v.get("mail").unwrap();
         assert_eq!(entry.url, "https://a.example");
         assert_eq!(entry.notes, "new note");
+    }
+
+    #[test]
+    fn update_keeps_password_when_omitted() {
+        let (mut v, _dir) = vault();
+        v.add_full("mail", "ada", "secret", "https://a.example", "note")
+            .unwrap();
+        v.update_full("mail", "grace", None, Some("https://b.example"), None)
+            .unwrap();
+        let entry = v.get("mail").unwrap();
+        assert_eq!(entry.username, "grace");
+        assert_eq!(entry.password, "secret");
+        assert_eq!(entry.url, "https://b.example");
+        assert_eq!(entry.notes, "note");
     }
 
     #[test]

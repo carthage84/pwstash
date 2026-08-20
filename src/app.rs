@@ -406,10 +406,15 @@ impl App {
                 let password = self.form.password.clone();
                 let url = self.form.url.clone();
                 let notes = self.form.notes.clone();
+                let password = if password.is_empty() {
+                    None
+                } else {
+                    Some(password.as_str())
+                };
                 match self.vault.update_full(
                     &service,
                     &username,
-                    &password,
+                    password,
                     Some(&url),
                     Some(&notes),
                 ) {
@@ -542,6 +547,21 @@ mod tests {
         let entry = app.vault.get("github").unwrap();
         assert_eq!(entry.username, "new");
         assert_eq!(entry.password, "newpass");
+    }
+
+    #[test]
+    fn edit_without_password_keeps_secret() {
+        let (mut app, _dir) = app_with_entries();
+        app.begin_edit();
+        app.form.username = "ada2".into();
+        app.form.url = "https://github.com".into();
+        app.form.notes = "2fa".into();
+        app.submit_form().unwrap();
+        let entry = app.vault.get("github").unwrap();
+        assert_eq!(entry.username, "ada2");
+        assert_eq!(entry.password, "gh-pass");
+        assert_eq!(entry.url, "https://github.com");
+        assert_eq!(entry.notes, "2fa");
     }
 
     #[test]

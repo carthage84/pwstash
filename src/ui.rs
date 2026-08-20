@@ -204,7 +204,14 @@ fn render_form(app: &App, frame: &mut Frame, area: Rect) {
         ]));
         lines.push(Line::from(vec![
             Span::raw("Password: "),
-            Span::styled(password_display, field_style(app, 1)),
+            Span::styled(
+                if app.form.password.is_empty() {
+                    "(unchanged)".to_string()
+                } else {
+                    password_display
+                },
+                field_style(app, 1),
+            ),
         ]));
         lines.push(Line::from(vec![
             Span::raw("URL:      "),
@@ -216,9 +223,11 @@ fn render_form(app: &App, frame: &mut Frame, area: Rect) {
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(
-        "Ctrl-G generates a password. Enter saves, Esc cancels.",
-    ));
+    lines.push(Line::from(if app.mode == Mode::Edit {
+        "Blank password keeps the current one. Ctrl-G generates. Enter saves."
+    } else {
+        "Ctrl-G generates a password. Enter saves, Esc cancels."
+    }));
 
     let form = Paragraph::new(lines).block(
         Block::bordered()

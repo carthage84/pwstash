@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::Context;
+use clap::CommandFactory;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
@@ -198,6 +199,10 @@ fn run() -> anyhow::Result<()> {
         Commands::Gui => {
             let vault = open_vault(&file)?;
             run_gui(vault)?;
+        }
+        Commands::Completions { shell } => {
+            let mut cmd = CommandLineArgs::command();
+            clap_complete::generate(shell, &mut cmd, "pwstash", &mut io::stdout());
         }
     }
     Ok(())

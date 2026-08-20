@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Encrypted password vault", long_about = None)]
@@ -114,6 +115,11 @@ pub enum Commands {
     },
     /// Open the terminal UI
     Gui,
+    /// Generate shell completions
+    Completions {
+        /// Shell to emit completions for
+        shell: Shell,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]

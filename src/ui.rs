@@ -540,10 +540,7 @@ mod tests {
         app.cancel_mode();
         app.begin_import();
         terminal.draw(|f| render(&mut app, f)).unwrap();
-        assert!(buffer_has(
-            terminal.backend().buffer(),
-            "source vault path"
-        ));
+        assert!(buffer_has(terminal.backend().buffer(), "source vault path"));
         assert!(!buffer_has(
             terminal.backend().buffer(),
             "Confirm is required"

@@ -65,6 +65,7 @@ pwstash backup -o vault.bak
 pwstash export -o other.stash --all
 pwstash export -o other.stash --service github --move
 pwstash import --from other.stash --all --on-conflict skip
+pwstash completions bash
 pwstash gui
 
 # or an explicit file
@@ -83,6 +84,8 @@ pwstash add -f vault.stash --service github --username me
 `backup` copies the encrypted vault file as-is (no decrypt). `export` copies selected services (`--service`, repeatable) or `--all` into another vault; `--move` deletes them here after a successful copy. `import` pulls entries from `--from`. Destination/source master passwords: `PWSTASH_DEST_MASTER` / `PWSTASH_SOURCE_MASTER`. `--on-conflict` is `fail` (default), `skip`, `overwrite`, or `ask` (compare fields, then skip / overwrite / rename / abort). Rename is prefilled with `name-<n>` using the smallest unused number. CLI import/export skips identical entries without asking. The TUI asks on every name clash, even when the fields match.
 
 If the vault file does not exist, commands that need it fail with a hint to run `pwstash init`. Nothing is created automatically.
+
+`pwstash completions bash` (or `zsh`, `fish`, `powershell`, `elvish`) prints a completion script to stdout. Source it from your shell config. Vault files (`*.stash`) are gitignored so a local vault is not committed by accident.
 
 ## Terminal UI
 
@@ -124,4 +127,7 @@ pwstash protects a vault at rest on disk against someone who does not know the m
 ```bash
 cargo test
 cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
 ```
+
+Pull requests run the same checks on Ubuntu and Windows.

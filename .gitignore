@@ -1,8 +1,5 @@
 /target
-/.idea/.gitignore
-/.idea/modules.xml
-/.idea/pwstash.iml
-/.idea/vcs.xml
-.idea/developer-tools.xml
+/.idea
+*.stash
 .cursorignore
 .cursorrules

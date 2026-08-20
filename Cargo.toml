@@ -13,6 +13,7 @@ aes-gcm = "0.10"
 anyhow = "1"
 argon2 = "0.5"
 clap = { version = "4.6", features = ["derive"] }
+clap_complete = "4.5"
 crossterm = "0.29"
 ctrlc = "3.4"
 rand = "0.8"

@@ -227,7 +227,17 @@ fn help_lists_commands_without_subcommand() {
         .success()
         .stdout(predicate::str::contains("Usage:"))
         .stdout(predicate::str::contains("init"))
-        .stdout(predicate::str::contains("gui"));
+        .stdout(predicate::str::contains("gui"))
+        .stdout(predicate::str::contains("completions"));
+}
+
+#[test]
+fn completions_bash_prints_script() {
+    bin()
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pwstash"));
 }
 
 #[test]

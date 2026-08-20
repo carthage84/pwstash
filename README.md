@@ -80,7 +80,7 @@ pwstash add -f vault.stash --service github --username me
 
 `passwd` unlocks with the current master password, then prompts twice for a new one (or `PWSTASH_NEW_MASTER`). The vault is rewritten with a fresh salt.
 
-`backup` copies the encrypted vault file as-is (no decrypt). `export` copies selected services (`--service`, repeatable) or `--all` into another vault; `--move` deletes them here after a successful copy. `import` pulls entries from `--from`. Destination/source master passwords: `PWSTASH_DEST_MASTER` / `PWSTASH_SOURCE_MASTER`. `--on-conflict` is `fail` (default), `skip`, `overwrite`, or `ask` (compare fields, then s/o/a). Identical entries are skipped without asking.
+`backup` copies the encrypted vault file as-is (no decrypt). `export` copies selected services (`--service`, repeatable) or `--all` into another vault; `--move` deletes them here after a successful copy. `import` pulls entries from `--from`. Destination/source master passwords: `PWSTASH_DEST_MASTER` / `PWSTASH_SOURCE_MASTER`. `--on-conflict` is `fail` (default), `skip`, `overwrite`, or `ask` (compare fields, then skip / overwrite / rename / abort). Rename is prefilled with `name-<n>` using the smallest unused number. CLI import/export skips identical entries without asking. The TUI asks on every name clash, even when the fields match.
 
 If the vault file does not exist, commands that need it fail with a hint to run `pwstash init`. Nothing is created automatically.
 

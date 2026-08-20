@@ -172,7 +172,12 @@ fn run() -> anyhow::Result<()> {
             let mut dest = open_or_create_dest(&output)?;
             let report = dest.ingest(incoming, conflict_resolver(on_conflict))?;
             if move_entries {
-                for name in report.copied.iter().chain(report.overwritten.iter()) {
+                for name in report
+                    .copied
+                    .iter()
+                    .chain(report.overwritten.iter())
+                    .chain(report.renamed.iter().map(|(from, _)| from))
+                {
                     source.delete(name)?;
                 }
             }
@@ -235,20 +240,21 @@ fn open_source(path: &Path) -> anyhow::Result<Vault> {
 
 fn conflict_resolver(
     policy: OnConflict,
-) -> impl FnMut(&PasswordEntry, &PasswordEntry) -> Result<ConflictDecision, StashError> {
-    move |existing, incoming| match policy {
+) -> impl FnMut(&PasswordEntry, &PasswordEntry, &str) -> Result<ConflictDecision, StashError> {
+    move |existing, incoming, proposed| match policy {
         OnConflict::Skip => Ok(ConflictDecision::Skip),
         OnConflict::Overwrite => Ok(ConflictDecision::Overwrite),
         OnConflict::Fail => Err(StashError::DuplicateService {
             service: incoming.service.clone(),
         }),
-        OnConflict::Ask => ask_conflict(existing, incoming),
+        OnConflict::Ask => ask_conflict(existing, incoming, proposed),
     }
 }
 
 fn ask_conflict(
     existing: &PasswordEntry,
     incoming: &PasswordEntry,
+    proposed: &str,
 ) -> Result<ConflictDecision, StashError> {
     if !io::stdin().is_terminal() {
         return Err(StashError::DuplicateService {
@@ -259,13 +265,34 @@ fn ask_conflict(
     for line in existing.diff_lines(incoming) {
         eprintln!("  {line}");
     }
-    eprintln!("Type s to skip, o to overwrite, a to abort, then press Enter.");
+    eprintln!(
+        "Type s to skip, o to overwrite, r to rename (default {proposed}), a to abort, then press Enter."
+    );
     io::stderr().flush().ok();
     let mut line = String::new();
     io::stdin().read_line(&mut line).map_err(StashError::from)?;
-    match line.trim() {
+    let mut parts = line.split_whitespace();
+    match parts.next().unwrap_or("") {
         "o" | "O" | "overwrite" => Ok(ConflictDecision::Overwrite),
         "a" | "A" | "abort" => Ok(ConflictDecision::Abort),
+        "r" | "R" | "rename" => {
+            let name = match parts.next() {
+                Some(name) => name.to_string(),
+                None => {
+                    eprintln!("New name [{proposed}]:");
+                    io::stderr().flush().ok();
+                    line.clear();
+                    io::stdin().read_line(&mut line).map_err(StashError::from)?;
+                    let typed = line.trim();
+                    if typed.is_empty() {
+                        proposed.to_string()
+                    } else {
+                        typed.to_string()
+                    }
+                }
+            };
+            Ok(ConflictDecision::Rename(name))
+        }
         _ => Ok(ConflictDecision::Skip),
     }
 }
@@ -273,9 +300,10 @@ fn ask_conflict(
 fn print_transfer_report(report: &pwstash::vault::TransferReport, moved: bool) {
     let verb = if moved { "Moved" } else { "Copied" };
     println!(
-        "{verb} {}, overwrote {}, skipped {}",
+        "{verb} {}, overwrote {}, renamed {}, skipped {}",
         report.copied.len(),
         report.overwritten.len(),
+        report.renamed.len(),
         report.skipped.len()
     );
 }

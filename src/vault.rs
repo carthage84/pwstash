@@ -18,11 +18,12 @@ pub struct PasswordEntry {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConflictDecision {
     Skip,
     Overwrite,
     Abort,
+    Rename(String),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -30,6 +31,8 @@ pub struct TransferReport {
     pub copied: Vec<String>,
     pub overwritten: Vec<String>,
     pub skipped: Vec<String>,
+    /// Original source name and the free name it was stored under.
+    pub renamed: Vec<(String, String)>,
 }
 
 impl PasswordEntry {
@@ -249,12 +252,21 @@ impl Vault {
         Ok(out)
     }
 
+    pub fn unused_name(&self, base: &str) -> String {
+        let base = base.trim();
+        (1u32..)
+            .map(|n| format!("{base}-{n}"))
+            .find(|candidate| self.get(candidate).is_none())
+            .expect("exhausted numeric suffixes")
+    }
+
     pub fn ingest(
         &mut self,
         incoming: Vec<PasswordEntry>,
         mut on_conflict: impl FnMut(
             &PasswordEntry,
             &PasswordEntry,
+            &str,
         ) -> Result<ConflictDecision, StashError>,
     ) -> Result<TransferReport, StashError> {
         self.ensure_unlocked()?;
@@ -280,12 +292,18 @@ impl Vault {
         }
         for (existing, incoming) in conflicts {
             let service = incoming.service.clone();
-            match on_conflict(&existing, &incoming)? {
+            let proposed = self.unused_name(&service);
+            match on_conflict(&existing, &incoming, &proposed)? {
                 ConflictDecision::Skip => report.skipped.push(service),
                 ConflictDecision::Overwrite => {
                     self.replace_entry(incoming);
                     report.overwritten.push(service);
                     self.save()?;
+                }
+                ConflictDecision::Rename(new_name) => {
+                    report
+                        .renamed
+                        .push(self.absorb_renamed(incoming, &new_name)?);
                 }
                 ConflictDecision::Abort => return Err(StashError::TransferAborted),
             }
@@ -309,6 +327,24 @@ impl Vault {
             self.entries.push(entry);
         }
         sort_entries(&mut self.entries);
+    }
+
+    pub(crate) fn absorb_renamed(
+        &mut self,
+        mut entry: PasswordEntry,
+        new_name: &str,
+    ) -> Result<(String, String), StashError> {
+        self.ensure_unlocked()?;
+        let new_name = require_trimmed(new_name, "service")?;
+        if self.get(&new_name).is_some() {
+            return Err(StashError::DuplicateService { service: new_name });
+        }
+        let original = entry.service.clone();
+        entry.service = new_name.clone();
+        self.entries.push(entry);
+        sort_entries(&mut self.entries);
+        self.save()?;
+        Ok((original, new_name))
     }
 
     pub fn find(&self, query: &str) -> Vec<&PasswordEntry> {
@@ -605,7 +641,7 @@ mod tests {
 
         let incoming = src.entries().to_vec();
         let report = dest
-            .ingest(incoming, |_, _| Ok(ConflictDecision::Overwrite))
+            .ingest(incoming, |_, _, _| Ok(ConflictDecision::Overwrite))
             .unwrap();
         assert!(
             report
@@ -617,6 +653,43 @@ mod tests {
         assert!(report.overwritten.iter().any(|s| s == "clash"));
         assert_eq!(dest.get("clash").unwrap().username, "y");
         assert_eq!(dest.get("extra").unwrap().username, "bob");
+    }
+
+    #[test]
+    fn unused_name_skips_taken_numbers() {
+        let (mut v, _dir) = vault();
+        v.add("github", "ada", "pw").unwrap();
+        v.add("github-1", "ada", "pw").unwrap();
+        v.add("github-3", "ada", "pw").unwrap();
+        assert_eq!(v.unused_name("github"), "github-2");
+        assert_eq!(v.unused_name("GitHub"), "GitHub-2");
+        assert_eq!(v.unused_name("mail"), "mail-1");
+    }
+
+    #[test]
+    fn ingest_rename_uses_free_name() {
+        let (mut src, dir) = vault();
+        src.add_full("github", "eve", "pw2", "https://gh", "incoming")
+            .unwrap();
+        let dest_path = dir.path().join("dest.stash");
+        let mut dest = Vault::create(&dest_path, "dest-secret").unwrap();
+        dest.add_full("github", "ada", "pw", "", "keep me").unwrap();
+        dest.add("github-1", "bob", "pw").unwrap();
+
+        let incoming = src.entries().to_vec();
+        let report = dest
+            .ingest(incoming, |_, _, proposed| {
+                assert_eq!(proposed, "github-2");
+                Ok(ConflictDecision::Rename(proposed.to_string()))
+            })
+            .unwrap();
+        assert_eq!(
+            report.renamed,
+            vec![("github".to_string(), "github-2".to_string())]
+        );
+        assert_eq!(dest.get("github").unwrap().username, "ada");
+        assert_eq!(dest.get("github-2").unwrap().username, "eve");
+        assert_eq!(dest.get("github-2").unwrap().url, "https://gh");
     }
 
     #[test]

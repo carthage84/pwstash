@@ -24,6 +24,7 @@ pub enum Mode {
     Locked,
     TransferSetup,
     TransferConflict,
+    TransferRename,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,13 +46,16 @@ pub struct FormState {
 }
 
 impl FormState {
-    pub fn field_count(&self, mode: Mode) -> usize {
+    pub fn field_count(&self, mode: Mode, transfer_kind: Option<TransferKind>) -> usize {
         match mode {
             Mode::Add => 5,
             Mode::Edit => 4,
-            Mode::Rename => 1,
+            Mode::Rename | Mode::TransferRename => 1,
             Mode::ChangeMaster => 2,
-            Mode::TransferSetup => 3,
+            Mode::TransferSetup => match transfer_kind {
+                Some(TransferKind::Import) => 2,
+                _ => 3,
+            },
             Mode::Locked => 1,
             _ => 0,
         }
@@ -66,7 +70,9 @@ impl FormState {
             }
             (Mode::Add, 3) | (Mode::Edit, 2) => &mut self.url,
             (Mode::Add, 4) | (Mode::Edit, 3) => &mut self.notes,
-            (Mode::Rename, _) | (Mode::TransferSetup, 0) => &mut self.service,
+            (Mode::Rename, _) | (Mode::TransferRename, _) | (Mode::TransferSetup, 0) => {
+                &mut self.service
+            }
             (Mode::TransferSetup, 1) => &mut self.password,
             (Mode::TransferSetup, 2) => &mut self.confirm,
             (Mode::ChangeMaster, 1) => &mut self.confirm,
@@ -74,15 +80,15 @@ impl FormState {
         }
     }
 
-    pub fn next_field(&mut self, mode: Mode) {
-        let n = self.field_count(mode);
+    pub fn next_field(&mut self, mode: Mode, transfer_kind: Option<TransferKind>) {
+        let n = self.field_count(mode, transfer_kind);
         if n > 0 {
             self.field = (self.field + 1) % n;
         }
     }
 
-    pub fn prev_field(&mut self, mode: Mode) {
-        let n = self.field_count(mode);
+    pub fn prev_field(&mut self, mode: Mode, transfer_kind: Option<TransferKind>) {
+        let n = self.field_count(mode, transfer_kind);
         if n > 0 {
             self.field = (self.field + n - 1) % n;
         }
@@ -375,6 +381,10 @@ impl App {
         self.transfer_report = TransferReport::default();
     }
 
+    fn dest_vault(&self) -> Option<&Vault> {
+        dest_ref(self.transfer_kind, &self.vault, &self.transfer_dest)
+    }
+
     pub fn begin_export(&mut self, move_entries: bool) {
         if self.services_to_transfer().is_empty() {
             self.flash("No entry selected");
@@ -443,22 +453,18 @@ impl App {
         Ok(())
     }
 
-    fn start_ingest(&mut self, incoming: Vec<PasswordEntry>, move_after: bool) {
-        let dest = if matches!(self.transfer_kind, Some(TransferKind::Import)) {
-            &mut self.vault
-        } else if let Some(dest) = self.transfer_dest.as_mut() {
-            dest
-        } else {
-            self.flash("No destination vault");
-            return;
+    pub(crate) fn start_ingest(&mut self, incoming: Vec<PasswordEntry>, move_after: bool) {
+        let dest = match dest_mut(self.transfer_kind, &mut self.vault, &mut self.transfer_dest) {
+            Some(dest) => dest,
+            None => {
+                self.flash("No destination vault");
+                return;
+            }
         };
         let mut ready = Vec::new();
         let mut conflicts = Vec::new();
         for entry in incoming {
             match dest.get(&entry.service) {
-                Some(existing) if existing.equivalent(&entry) => {
-                    self.transfer_report.skipped.push(entry.service.clone());
-                }
                 Some(existing) => conflicts.push((existing.clone(), entry)),
                 None => ready.push(entry),
             }
@@ -494,18 +500,30 @@ impl App {
             self.finish_transfer();
             return;
         };
-        let dest = if matches!(self.transfer_kind, Some(TransferKind::Import)) {
-            &self.vault
-        } else if let Some(dest) = self.transfer_dest.as_ref() {
-            dest
-        } else {
+        let Some(dest) = self.dest_vault() else {
             self.finish_transfer();
             return;
         };
         let existing = dest.get(&incoming.service).cloned();
         self.conflict_incoming = Some(incoming);
         self.conflict_existing = existing;
+        self.form = FormState::default();
         self.mode = Mode::TransferConflict;
+    }
+
+    pub fn begin_conflict_rename(&mut self) {
+        let Some(service) = self.conflict_incoming.as_ref().map(|e| e.service.clone()) else {
+            return;
+        };
+        let proposed = match self.dest_vault() {
+            Some(dest) => dest.unused_name(&service),
+            None => format!("{service}-1"),
+        };
+        self.form = FormState {
+            service: proposed,
+            ..FormState::default()
+        };
+        self.mode = Mode::TransferRename;
     }
 
     pub fn resolve_conflict(&mut self, decision: ConflictDecision) -> Result<()> {
@@ -524,11 +542,8 @@ impl App {
                 self.transfer_queue.remove(0);
             }
             ConflictDecision::Overwrite => {
-                let dest = if matches!(self.transfer_kind, Some(TransferKind::Import)) {
-                    &mut self.vault
-                } else if let Some(dest) = self.transfer_dest.as_mut() {
-                    dest
-                } else {
+                let dest = dest_mut(self.transfer_kind, &mut self.vault, &mut self.transfer_dest);
+                let Some(dest) = dest else {
                     self.finish_transfer();
                     return Ok(());
                 };
@@ -542,6 +557,24 @@ impl App {
                     .overwritten
                     .push(incoming.service.clone());
                 self.transfer_queue.remove(0);
+            }
+            ConflictDecision::Rename(new_name) => {
+                let dest = dest_mut(self.transfer_kind, &mut self.vault, &mut self.transfer_dest);
+                let Some(dest) = dest else {
+                    self.finish_transfer();
+                    return Ok(());
+                };
+                match dest.absorb_renamed(incoming, &new_name) {
+                    Ok(pair) => {
+                        self.transfer_report.renamed.push(pair);
+                        self.transfer_queue.remove(0);
+                    }
+                    Err(err) => {
+                        self.flash(err.to_string());
+                        self.mode = Mode::TransferRename;
+                        return Ok(());
+                    }
+                }
             }
         }
         if self.transfer_queue.is_empty() {
@@ -560,6 +593,7 @@ impl App {
                 .copied
                 .iter()
                 .chain(self.transfer_report.overwritten.iter())
+                .chain(self.transfer_report.renamed.iter().map(|(from, _)| from))
                 .cloned()
                 .collect();
             for name in names {
@@ -568,9 +602,10 @@ impl App {
             }
         }
         let report = format!(
-            "Copied {}, overwrote {}, skipped {}",
+            "Copied {}, overwrote {}, renamed {}, skipped {}",
             self.transfer_report.copied.len(),
             self.transfer_report.overwritten.len(),
+            self.transfer_report.renamed.len(),
             self.transfer_report.skipped.len()
         );
         self.clear_transfer();
@@ -595,6 +630,10 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
                 self.mode = Mode::List;
+            }
+            Mode::TransferRename => {
+                self.form = FormState::default();
+                self.mode = Mode::TransferConflict;
             }
             Mode::Add
             | Mode::Edit
@@ -629,6 +668,7 @@ impl App {
             | Mode::ChangeMaster
             | Mode::Rename
             | Mode::TransferSetup
+            | Mode::TransferRename
             | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push_str(text);
@@ -650,6 +690,7 @@ impl App {
             | Mode::ChangeMaster
             | Mode::Rename
             | Mode::TransferSetup
+            | Mode::TransferRename
             | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push(c);
@@ -670,6 +711,7 @@ impl App {
             | Mode::ChangeMaster
             | Mode::Rename
             | Mode::TransferSetup
+            | Mode::TransferRename
             | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).pop();
@@ -772,6 +814,10 @@ impl App {
                 }
             }
             Mode::TransferSetup => self.submit_transfer_setup()?,
+            Mode::TransferRename => {
+                let name = self.form.service.clone();
+                self.resolve_conflict(ConflictDecision::Rename(name))?;
+            }
             Mode::Locked => {
                 let password = self.form.password.clone();
                 match self.vault.unlock(&password) {
@@ -811,6 +857,30 @@ impl App {
         self.mode = Mode::List;
         self.sync_list_state();
         Ok(())
+    }
+}
+
+fn dest_ref<'a>(
+    kind: Option<TransferKind>,
+    vault: &'a Vault,
+    dest: &'a Option<Vault>,
+) -> Option<&'a Vault> {
+    match kind {
+        Some(TransferKind::Import) => Some(vault),
+        Some(TransferKind::ExportCopy | TransferKind::ExportMove) => dest.as_ref(),
+        None => None,
+    }
+}
+
+fn dest_mut<'a>(
+    kind: Option<TransferKind>,
+    vault: &'a mut Vault,
+    dest: &'a mut Option<Vault>,
+) -> Option<&'a mut Vault> {
+    match kind {
+        Some(TransferKind::Import) => Some(vault),
+        Some(TransferKind::ExportCopy | TransferKind::ExportMove) => dest.as_mut(),
+        None => None,
     }
 }
 
@@ -961,6 +1031,68 @@ mod tests {
         let (mut app, _dir) = app_with_entries();
         app.quit();
         assert!(!app.running);
+    }
+
+    #[test]
+    fn import_setup_has_two_fields() {
+        let (mut app, _dir) = app_with_entries();
+        app.begin_import();
+        assert_eq!(app.form.field_count(app.mode, app.transfer_kind), 2);
+        app.begin_export(false);
+        assert_eq!(app.form.field_count(app.mode, app.transfer_kind), 3);
+    }
+
+    #[test]
+    fn import_name_clash_prompts_even_when_identical() {
+        let (mut app, dir) = app_with_entries();
+        let source_path = dir.path().join("src.stash");
+        let mut source = Vault::create(&source_path, "src-secret").unwrap();
+        source.add("github", "ada", "gh-pass").unwrap();
+        source.add("mail", "ada", "mail-pass").unwrap();
+        app.transfer_kind = Some(TransferKind::Import);
+        app.start_ingest(source.entries().to_vec(), false);
+        assert_eq!(app.mode, Mode::TransferConflict);
+        assert_eq!(
+            app.conflict_incoming.as_ref().map(|e| e.service.as_str()),
+            Some("github")
+        );
+    }
+
+    #[test]
+    fn conflict_rename_form_prefills_free_name() {
+        let (mut app, dir) = app_with_entries();
+        let source_path = dir.path().join("src.stash");
+        let mut source = Vault::create(&source_path, "src-secret").unwrap();
+        source.add("github", "eve", "other").unwrap();
+        source.add("github-1", "taken", "pw").unwrap();
+        app.transfer_kind = Some(TransferKind::Import);
+        app.start_ingest(source.entries().to_vec(), false);
+        assert_eq!(app.mode, Mode::TransferConflict);
+        app.begin_conflict_rename();
+        assert_eq!(app.mode, Mode::TransferRename);
+        assert_eq!(app.form.service, "github-2");
+        app.submit_form().unwrap();
+        assert_eq!(app.mode, Mode::List);
+        assert_eq!(app.vault.get("github").unwrap().username, "ada");
+        assert_eq!(app.vault.get("github-2").unwrap().username, "eve");
+        assert_eq!(app.vault.get("github-1").unwrap().username, "taken");
+    }
+
+    #[test]
+    fn conflict_rename_rejects_taken_name() {
+        let (mut app, dir) = app_with_entries();
+        let source_path = dir.path().join("src.stash");
+        let mut source = Vault::create(&source_path, "src-secret").unwrap();
+        source.add("github", "eve", "other").unwrap();
+        app.transfer_kind = Some(TransferKind::Import);
+        app.start_ingest(source.entries().to_vec(), false);
+        app.begin_conflict_rename();
+        assert_eq!(app.form.service, "github-1");
+        app.form.service = "mail".into();
+        app.submit_form().unwrap();
+        assert_eq!(app.mode, Mode::TransferRename);
+        assert!(app.vault.get("github").unwrap().username == "ada");
+        assert!(app.vault.get("mail").unwrap().username == "ada");
     }
 
     #[test]

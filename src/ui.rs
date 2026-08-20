@@ -26,7 +26,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     match app.mode {
         Mode::Add | Mode::Edit => render_form(app, frame, area),
         Mode::ChangeMaster => render_change_master(app, frame, area),
-        Mode::Rename => render_rename(app, frame, area),
+        Mode::Rename | Mode::TransferRename => render_rename(app, frame, area),
         Mode::ConfirmDelete => render_confirm(app, frame, area),
         Mode::Help => render_help(frame, area),
         Mode::Locked => render_locked(app, frame, area),
@@ -147,12 +147,12 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         Mode::Add => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
         Mode::Edit => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
         Mode::ChangeMaster => "Tab next  Enter save  Esc cancel",
-        Mode::Rename => "Enter save  Esc cancel",
+        Mode::Rename | Mode::TransferRename => "Enter save  Esc cancel",
         Mode::ConfirmDelete => "[y] delete  [n] cancel",
         Mode::Help => "Esc or ? close help",
         Mode::Locked => "Enter unlock  q quit",
         Mode::TransferSetup => "Tab next  Enter continue  Esc cancel",
-        Mode::TransferConflict => "[s]kip  [o]verwrite  [a]bort",
+        Mode::TransferConflict => "[s]kip  [o]verwrite  [r]ename  [a]bort",
     };
     let text = if let Some((msg, _)) = &app.status {
         Line::from(vec![
@@ -288,9 +288,15 @@ fn render_transfer_setup(app: &App, frame: &mut Frame, area: Rect) {
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(
-        "Confirm is required only when creating a new vault.",
-    ));
+    if matches!(app.transfer_kind, Some(crate::app::TransferKind::Import)) {
+        lines.push(Line::from(
+            "Enter the source vault path and its master password.",
+        ));
+    } else {
+        lines.push(Line::from(
+            "Confirm is required only when creating a new vault.",
+        ));
+    }
     let form = Paragraph::new(lines).block(
         Block::bordered()
             .border_type(BorderType::Rounded)
@@ -316,7 +322,7 @@ fn render_transfer_conflict(app: &App, frame: &mut Frame, area: Rect) {
         }
     }
     lines.push(Line::from(""));
-    lines.push(Line::from("s skip   o overwrite   a abort"));
+    lines.push(Line::from("s skip   o overwrite   r rename   a abort"));
     let text = Paragraph::new(lines).block(
         Block::bordered()
             .border_type(BorderType::Rounded)
@@ -341,7 +347,11 @@ fn render_rename(app: &App, frame: &mut Frame, area: Rect) {
     .block(
         Block::bordered()
             .border_type(BorderType::Rounded)
-            .title("Rename")
+            .title(if app.mode == Mode::TransferRename {
+                "Import as"
+            } else {
+                "Rename"
+            })
             .title_alignment(Alignment::Center)
             .style(Style::default().fg(Color::White).bg(Color::Black)),
     );
@@ -421,6 +431,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Line::from("a / e / r / d   add / edit / rename / delete"),
         Line::from("space           mark for export"),
         Line::from("E / M / I       export copy / export move / import"),
+        Line::from("s / o / r / a   skip / overwrite / rename / abort on clash"),
         Line::from("P               change master password"),
         Line::from("Ctrl-G          generate in a form"),
         Line::from("q / Ctrl-C      quit"),
@@ -525,6 +536,39 @@ mod tests {
             terminal.backend().buffer(),
             "change master password"
         ));
+
+        app.cancel_mode();
+        app.begin_import();
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        assert!(buffer_has(
+            terminal.backend().buffer(),
+            "source vault path"
+        ));
+        assert!(!buffer_has(
+            terminal.backend().buffer(),
+            "Confirm is required"
+        ));
+        app.cancel_mode();
+
+        app.begin_export(false);
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        assert!(buffer_has(
+            terminal.backend().buffer(),
+            "Confirm is required"
+        ));
+        app.cancel_mode();
+
+        let source_path = dir.path().join("src.stash");
+        let mut source = Vault::create(&source_path, "src-secret").unwrap();
+        source.add("github", "eve", "other").unwrap();
+        app.transfer_kind = Some(crate::app::TransferKind::Import);
+        app.start_ingest(source.entries().to_vec(), false);
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        assert!(buffer_has(terminal.backend().buffer(), "r rename"));
+        app.begin_conflict_rename();
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        assert!(buffer_has(terminal.backend().buffer(), "github-1"));
+        assert!(buffer_has(terminal.backend().buffer(), "Import as"));
 
         app.lock();
         terminal.draw(|f| render(&mut app, f)).unwrap();

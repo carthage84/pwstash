@@ -27,14 +27,17 @@ pub struct FormState {
     pub username: String,
     pub password: String,
     pub confirm: String,
+    pub url: String,
+    pub notes: String,
     pub field: usize,
 }
 
 impl FormState {
     pub fn field_count(&self, mode: Mode) -> usize {
         match mode {
-            Mode::Add => 3,
-            Mode::Edit | Mode::ChangeMaster => 2,
+            Mode::Add => 5,
+            Mode::Edit => 4,
+            Mode::ChangeMaster => 2,
             Mode::Locked => 1,
             _ => 0,
         }
@@ -47,6 +50,8 @@ impl FormState {
             (Mode::Add, 2) | (Mode::Edit, 1) | (Mode::ChangeMaster, 0) | (Mode::Locked, _) => {
                 &mut self.password
             }
+            (Mode::Add, 3) | (Mode::Edit, 2) => &mut self.url,
+            (Mode::Add, 4) | (Mode::Edit, 3) => &mut self.notes,
             (Mode::ChangeMaster, 1) => &mut self.confirm,
             _ => &mut self.service,
         }
@@ -157,6 +162,8 @@ impl App {
                 q.is_empty()
                     || entry.service.to_lowercase().contains(&q)
                     || entry.username.to_lowercase().contains(&q)
+                    || entry.url.to_lowercase().contains(&q)
+                    || entry.notes.to_lowercase().contains(&q)
             })
             .map(|(i, _)| i)
             .collect()
@@ -278,6 +285,8 @@ impl App {
             username: entry.username.clone(),
             password: String::new(),
             confirm: String::new(),
+            url: entry.url.clone(),
+            notes: entry.notes.clone(),
             field: 0,
         };
         self.mode = Mode::Edit;
@@ -369,7 +378,12 @@ impl App {
                 let service = self.form.service.clone();
                 let username = self.form.username.clone();
                 let password = self.form.password.clone();
-                match self.vault.add(&service, &username, &password) {
+                let url = self.form.url.clone();
+                let notes = self.form.notes.clone();
+                match self
+                    .vault
+                    .add_full(&service, &username, &password, &url, &notes)
+                {
                     Ok(()) => {
                         self.form = FormState::default();
                         self.mode = Mode::List;
@@ -390,7 +404,15 @@ impl App {
                 let service = self.form.service.clone();
                 let username = self.form.username.clone();
                 let password = self.form.password.clone();
-                match self.vault.update(&service, &username, &password) {
+                let url = self.form.url.clone();
+                let notes = self.form.notes.clone();
+                match self.vault.update_full(
+                    &service,
+                    &username,
+                    &password,
+                    Some(&url),
+                    Some(&notes),
+                ) {
                     Ok(()) => {
                         self.form = FormState::default();
                         self.mode = Mode::List;
@@ -500,9 +522,13 @@ mod tests {
         app.form.service = "work".into();
         app.form.username = "dev".into();
         app.form.password = "secret".into();
+        app.form.url = "https://work.example".into();
+        app.form.notes = "vpn".into();
         app.submit_form().unwrap();
         assert_eq!(app.mode, Mode::List);
-        assert!(app.vault.get("work").is_some());
+        let entry = app.vault.get("work").unwrap();
+        assert_eq!(entry.url, "https://work.example");
+        assert_eq!(entry.notes, "vpn");
     }
 
     #[test]

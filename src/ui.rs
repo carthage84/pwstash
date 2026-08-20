@@ -93,20 +93,33 @@ fn render_body(app: &mut App, frame: &mut Frame, area: Rect) {
             } else {
                 "********".to_string()
             };
-            Paragraph::new(vec![
+            let mut lines = vec![
                 Line::from(vec![
                     Span::styled("Service:  ", Style::default().fg(ACCENT)),
-                    Span::raw(&entry.service),
+                    Span::raw(entry.service.clone()),
                 ]),
                 Line::from(vec![
                     Span::styled("Username: ", Style::default().fg(ACCENT)),
-                    Span::raw(&entry.username),
+                    Span::raw(entry.username.clone()),
                 ]),
                 Line::from(vec![
                     Span::styled("Password: ", Style::default().fg(ACCENT)),
                     Span::raw(password),
                 ]),
-            ])
+            ];
+            if !entry.url.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled("URL:      ", Style::default().fg(ACCENT)),
+                    Span::raw(entry.url.clone()),
+                ]));
+            }
+            if !entry.notes.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled("Notes:    ", Style::default().fg(ACCENT)),
+                    Span::raw(entry.notes.clone()),
+                ]));
+            }
+            Paragraph::new(lines)
         }
         None => Paragraph::new("No entry selected.\nPress a to add one."),
     }
@@ -148,7 +161,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
 }
 
 fn render_form(app: &App, frame: &mut Frame, area: Rect) {
-    let popup = centered_rect(60, 11, area);
+    let popup = centered_rect(70, 15, area);
     frame.render_widget(Clear, popup);
 
     let title = match app.mode {
@@ -157,31 +170,51 @@ fn render_form(app: &App, frame: &mut Frame, area: Rect) {
         _ => "Form",
     };
 
-    let service_style = field_style(app, 0);
-    let user_style = field_style(app, add_field_index(app.mode, 1));
-    let pass_style = field_style(app, add_field_index(app.mode, 2));
-
     let password_display: String = "*".repeat(app.form.password.chars().count());
     let mut lines = Vec::new();
     if app.mode == Mode::Add {
         lines.push(Line::from(vec![
             Span::raw("Service:  "),
-            Span::styled(app.form.service.clone(), service_style),
+            Span::styled(app.form.service.clone(), field_style(app, 0)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("Username: "),
+            Span::styled(app.form.username.clone(), field_style(app, 1)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("Password: "),
+            Span::styled(password_display, field_style(app, 2)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("URL:      "),
+            Span::styled(app.form.url.clone(), field_style(app, 3)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("Notes:    "),
+            Span::styled(app.form.notes.clone(), field_style(app, 4)),
         ]));
     } else {
         lines.push(Line::from(vec![
             Span::raw("Service:  "),
             Span::raw(app.form.service.clone()),
         ]));
+        lines.push(Line::from(vec![
+            Span::raw("Username: "),
+            Span::styled(app.form.username.clone(), field_style(app, 0)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("Password: "),
+            Span::styled(password_display, field_style(app, 1)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("URL:      "),
+            Span::styled(app.form.url.clone(), field_style(app, 2)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("Notes:    "),
+            Span::styled(app.form.notes.clone(), field_style(app, 3)),
+        ]));
     }
-    lines.push(Line::from(vec![
-        Span::raw("Username: "),
-        Span::styled(app.form.username.clone(), user_style),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw("Password: "),
-        Span::styled(password_display, pass_style),
-    ]));
     lines.push(Line::from(""));
     lines.push(Line::from(
         "Ctrl-G generates a password. Enter saves, Esc cancels.",
@@ -195,14 +228,6 @@ fn render_form(app: &App, frame: &mut Frame, area: Rect) {
             .style(Style::default().fg(Color::White).bg(Color::Black)),
     );
     frame.render_widget(form, popup);
-}
-
-fn add_field_index(mode: Mode, add_index: usize) -> usize {
-    match mode {
-        Mode::Add => add_index,
-        Mode::Edit => add_index.saturating_sub(1),
-        _ => add_index,
-    }
 }
 
 fn field_style(app: &App, index: usize) -> Style {
@@ -366,7 +391,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("ui.stash");
         let mut vault = Vault::create(&path, "master").unwrap();
-        vault.add("github", "ada", "secret").unwrap();
+        vault
+            .add_full("github", "ada", "secret", "https://github.com", "work")
+            .unwrap();
         vault.add("mail", "ada", "secret2").unwrap();
         let mut app = App::new(vault);
 
@@ -374,6 +401,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| render(&mut app, f)).unwrap();
         assert!(buffer_has(terminal.backend().buffer(), "github"));
+        assert!(buffer_has(terminal.backend().buffer(), "github.com"));
         assert!(buffer_has(terminal.backend().buffer(), "mail"));
 
         app.begin_delete();

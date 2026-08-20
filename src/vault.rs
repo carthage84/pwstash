@@ -12,6 +12,10 @@ pub struct PasswordEntry {
     pub service: String,
     pub username: String,
     pub password: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub url: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub notes: String,
 }
 
 impl std::fmt::Debug for PasswordEntry {
@@ -19,6 +23,7 @@ impl std::fmt::Debug for PasswordEntry {
         f.debug_struct("PasswordEntry")
             .field("service", &self.service)
             .field("username", &self.username)
+            .field("url", &self.url)
             .field("password", &"***")
             .finish()
     }
@@ -126,6 +131,17 @@ impl Vault {
     }
 
     pub fn add(&mut self, service: &str, username: &str, password: &str) -> Result<(), StashError> {
+        self.add_full(service, username, password, "", "")
+    }
+
+    pub fn add_full(
+        &mut self,
+        service: &str,
+        username: &str,
+        password: &str,
+        url: &str,
+        notes: &str,
+    ) -> Result<(), StashError> {
         self.ensure_unlocked()?;
         let service = require_trimmed(service, "service")?;
         let username = require_trimmed(username, "username")?;
@@ -143,6 +159,8 @@ impl Vault {
             service,
             username,
             password: password.to_string(),
+            url: optional_text(url),
+            notes: optional_text(notes),
         });
         self.save()
     }
@@ -159,6 +177,17 @@ impl Vault {
         username: &str,
         password: &str,
     ) -> Result<(), StashError> {
+        self.update_full(service, username, password, None, None)
+    }
+
+    pub fn update_full(
+        &mut self,
+        service: &str,
+        username: &str,
+        password: &str,
+        url: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<(), StashError> {
         self.ensure_unlocked()?;
         let username = require_trimmed(username, "username")?;
         require_password(password)?;
@@ -171,6 +200,12 @@ impl Vault {
             })?;
         self.entries[index].username = username;
         self.entries[index].password = password.to_string();
+        if let Some(url) = url {
+            self.entries[index].url = optional_text(url);
+        }
+        if let Some(notes) = notes {
+            self.entries[index].notes = optional_text(notes);
+        }
         self.save()
     }
 
@@ -217,6 +252,10 @@ fn require_trimmed(value: &str, field: &'static str) -> Result<String, StashErro
     } else {
         Ok(trimmed.to_string())
     }
+}
+
+fn optional_text(value: &str) -> String {
+    value.trim().to_string()
 }
 
 fn require_password(password: &str) -> Result<(), StashError> {
@@ -321,6 +360,41 @@ mod tests {
             v.add("s", "u", ""),
             Err(StashError::EmptyField { field: "password" })
         ));
+    }
+
+    #[test]
+    fn url_and_notes_roundtrip() {
+        let (mut v, _dir) = vault();
+        v.add_full("mail", "ada", "pw", "https://mail.example", "work account")
+            .unwrap();
+        let opened = Vault::open(v.path(), "master-secret").unwrap();
+        let entry = opened.get("mail").unwrap();
+        assert_eq!(entry.url, "https://mail.example");
+        assert_eq!(entry.notes, "work account");
+    }
+
+    #[test]
+    fn missing_url_notes_default_empty() {
+        let json = r#"[{"service":"s","username":"u","password":"p"}]"#;
+        let entries: Vec<PasswordEntry> = serde_json::from_str(json).unwrap();
+        assert_eq!(entries[0].url, "");
+        assert_eq!(entries[0].notes, "");
+    }
+
+    #[test]
+    fn update_preserves_url_unless_passed() {
+        let (mut v, _dir) = vault();
+        v.add_full("mail", "ada", "pw", "https://a.example", "note")
+            .unwrap();
+        v.update("mail", "ada", "pw2").unwrap();
+        let entry = v.get("mail").unwrap();
+        assert_eq!(entry.url, "https://a.example");
+        assert_eq!(entry.notes, "note");
+        v.update_full("mail", "ada", "pw3", None, Some("new note"))
+            .unwrap();
+        let entry = v.get("mail").unwrap();
+        assert_eq!(entry.url, "https://a.example");
+        assert_eq!(entry.notes, "new note");
     }
 
     #[test]

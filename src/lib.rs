@@ -19,6 +19,7 @@ pub mod args;
 pub mod clipboard;
 pub mod encryption;
 pub mod error;
+pub mod generate;
 pub mod master_password;
 pub mod paths;
 pub mod persistence;

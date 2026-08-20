@@ -26,6 +26,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     match app.mode {
         Mode::Add | Mode::Edit => render_form(app, frame, area),
         Mode::ConfirmDelete => render_confirm(app, frame, area),
+        Mode::Help => render_help(frame, area),
         Mode::List | Mode::Search => {}
     }
 }
@@ -118,11 +119,14 @@ fn render_body(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     let help = match app.mode {
-        Mode::List => "[j/k] move  [/] search  [p] reveal  [c] copy  [a]dd  [e]dit  [d]el  [q]uit",
+        Mode::List => {
+            "[j/k] move  [/] search  [p] reveal  [c]opy  [y] user  [g]en  [?] help  [q]uit"
+        }
         Mode::Search => "type to filter  Enter keep  Esc clear",
-        Mode::Add => "Tab next field  Enter save  Esc cancel",
-        Mode::Edit => "Tab next field  Enter save  Esc cancel",
+        Mode::Add => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
+        Mode::Edit => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
         Mode::ConfirmDelete => "[y] delete  [n] cancel",
+        Mode::Help => "Esc or ? close help",
     };
     let text = if let Some((msg, _)) = &app.status {
         Line::from(vec![
@@ -177,7 +181,9 @@ fn render_form(app: &App, frame: &mut Frame, area: Rect) {
         Span::styled(password_display, pass_style),
     ]));
     lines.push(Line::from(""));
-    lines.push(Line::from("Enter saves the last field, Esc cancels."));
+    lines.push(Line::from(
+        "Ctrl-G generates a password. Enter saves, Esc cancels.",
+    ));
 
     let form = Paragraph::new(lines).block(
         Block::bordered()
@@ -206,6 +212,31 @@ fn field_style(app: &App, index: usize) -> Style {
     } else {
         Style::default()
     }
+}
+
+fn render_help(frame: &mut Frame, area: Rect) {
+    let popup = centered_rect(70, 16, area);
+    frame.render_widget(Clear, popup);
+    let text = Paragraph::new(vec![
+        Line::from("j/k or arrows   move"),
+        Line::from("/               search"),
+        Line::from("p or Enter      reveal password"),
+        Line::from("c               copy password (30s)"),
+        Line::from("y               copy username (30s)"),
+        Line::from("g               add with generated password"),
+        Line::from("a / e / d       add / edit / delete"),
+        Line::from("Ctrl-G          generate in a form"),
+        Line::from("q / Ctrl-C      quit"),
+        Line::from(""),
+        Line::from("Esc or ? closes this help."),
+    ])
+    .block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .title("Keys")
+            .title_alignment(Alignment::Center),
+    );
+    frame.render_widget(text, popup);
 }
 
 fn render_confirm(app: &App, frame: &mut Frame, area: Rect) {
@@ -284,5 +315,10 @@ mod tests {
         app.begin_delete();
         terminal.draw(|f| render(&mut app, f)).unwrap();
         assert!(buffer_has(terminal.backend().buffer(), "Delete github?"));
+
+        app.cancel_mode();
+        app.begin_help();
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        assert!(buffer_has(terminal.backend().buffer(), "copy password"));
     }
 }

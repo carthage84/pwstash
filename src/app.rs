@@ -15,6 +15,7 @@ pub enum Mode {
     Add,
     Edit,
     ConfirmDelete,
+    Help,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -178,21 +179,50 @@ impl App {
     }
 
     pub fn copy_password(&mut self) -> Result<()> {
-        let password = match self.selected_entry() {
-            Some(entry) => entry.password.clone(),
-            None => {
-                self.flash("No entry selected");
-                return Ok(());
-            }
+        self.copy_selected("Password", |entry| entry.password.clone())
+    }
+
+    pub fn copy_username(&mut self) -> Result<()> {
+        self.copy_selected("Username", |entry| entry.username.clone())
+    }
+
+    fn copy_selected(
+        &mut self,
+        label: &str,
+        value: impl FnOnce(&PasswordEntry) -> String,
+    ) -> Result<()> {
+        let Some(entry) = self.selected_entry() else {
+            self.flash("No entry selected");
+            return Ok(());
         };
-        match clipboard::copy_text(&password) {
+        let secret = value(entry);
+        match clipboard::copy_text(&secret) {
             Ok(()) => {
                 self.clipboard_clear_at = Some(Instant::now() + CLIPBOARD_TTL);
-                self.flash("Password copied (clears in 30s)");
+                self.flash(format!("{label} copied (clears in 30s)"));
             }
             Err(err) => self.flash(err.to_string()),
         }
         Ok(())
+    }
+
+    pub fn generate_form_password(&mut self) {
+        match crate::generate::generate(crate::generate::DEFAULT_LENGTH) {
+            Ok(password) => {
+                self.form.password = password;
+                self.flash("Generated a password");
+            }
+            Err(err) => self.flash(err.to_string()),
+        }
+    }
+
+    pub fn begin_add_generated(&mut self) {
+        self.begin_add();
+        self.generate_form_password();
+    }
+
+    pub fn begin_help(&mut self) {
+        self.mode = Mode::Help;
     }
 
     pub fn begin_search(&mut self) {
@@ -234,7 +264,7 @@ impl App {
                 self.sync_list_state();
                 self.mode = Mode::List;
             }
-            Mode::Add | Mode::Edit | Mode::ConfirmDelete => {
+            Mode::Add | Mode::Edit | Mode::ConfirmDelete | Mode::Help => {
                 self.form = FormState::default();
                 self.mode = Mode::List;
             }
@@ -258,7 +288,7 @@ impl App {
                 let mode = self.mode;
                 self.form.active_mut(mode).push_str(text);
             }
-            Mode::List | Mode::ConfirmDelete => {}
+            Mode::List | Mode::ConfirmDelete | Mode::Help => {}
         }
     }
 
@@ -274,7 +304,7 @@ impl App {
                 let mode = self.mode;
                 self.form.active_mut(mode).push(c);
             }
-            Mode::List | Mode::ConfirmDelete => {}
+            Mode::List | Mode::ConfirmDelete | Mode::Help => {}
         }
     }
 
@@ -289,7 +319,7 @@ impl App {
                 let mode = self.mode;
                 self.form.active_mut(mode).pop();
             }
-            Mode::List | Mode::ConfirmDelete => {}
+            Mode::List | Mode::ConfirmDelete | Mode::Help => {}
         }
     }
 
@@ -457,5 +487,22 @@ mod tests {
         let (mut app, _dir) = app_with_entries();
         app.quit();
         assert!(!app.running);
+    }
+
+    #[test]
+    fn generate_fills_password_field() {
+        let (mut app, _dir) = app_with_entries();
+        app.begin_add_generated();
+        assert_eq!(app.mode, Mode::Add);
+        assert_eq!(app.form.password.len(), crate::generate::DEFAULT_LENGTH);
+    }
+
+    #[test]
+    fn help_mode_toggles() {
+        let (mut app, _dir) = app_with_entries();
+        app.begin_help();
+        assert_eq!(app.mode, Mode::Help);
+        app.cancel_mode();
+        assert_eq!(app.mode, Mode::List);
     }
 }

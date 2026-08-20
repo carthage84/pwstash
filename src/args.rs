@@ -29,6 +29,10 @@ pub enum Commands {
         /// Length of a generated password (8–128)
         #[arg(long, default_value_t = crate::generate::DEFAULT_LENGTH)]
         length: usize,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
     },
     /// Print credentials for a service
     Get {
@@ -54,6 +58,10 @@ pub enum Commands {
         /// Length of a generated password (8–128)
         #[arg(long, default_value_t = crate::generate::DEFAULT_LENGTH)]
         length: usize,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
     },
     /// Remove credentials for a service
     Delete {

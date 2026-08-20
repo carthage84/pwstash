@@ -42,10 +42,18 @@ fn run() -> anyhow::Result<()> {
             username,
             generate: generate_flag,
             length,
+            url,
+            notes,
         } => {
             let mut vault = open_vault(&file)?;
             let password = entry_password(generate_flag, length)?;
-            vault.add(&service, &username, &password)?;
+            vault.add_full(
+                &service,
+                &username,
+                &password,
+                url.as_deref().unwrap_or(""),
+                notes.as_deref().unwrap_or(""),
+            )?;
             if generate_flag {
                 println!("Added {service} with a generated password");
             } else {
@@ -58,6 +66,12 @@ fn run() -> anyhow::Result<()> {
                 Some(entry) => {
                     println!("Username: {}", entry.username);
                     println!("Password: {}", entry.password);
+                    if !entry.url.is_empty() {
+                        println!("URL: {}", entry.url);
+                    }
+                    if !entry.notes.is_empty() {
+                        println!("Notes: {}", entry.notes);
+                    }
                 }
                 None => println!("No password found for {service}"),
             }
@@ -83,7 +97,11 @@ fn run() -> anyhow::Result<()> {
                 println!("No entries.");
             } else {
                 for entry in vault.entries() {
-                    println!("{}\t{}", entry.service, entry.username);
+                    if entry.url.is_empty() {
+                        println!("{}\t{}", entry.service, entry.username);
+                    } else {
+                        println!("{}\t{}\t{}", entry.service, entry.username, entry.url);
+                    }
                 }
             }
         }
@@ -92,10 +110,18 @@ fn run() -> anyhow::Result<()> {
             username,
             generate: generate_flag,
             length,
+            url,
+            notes,
         } => {
             let mut vault = open_vault(&file)?;
             let password = entry_password(generate_flag, length)?;
-            vault.update(&service, &username, &password)?;
+            vault.update_full(
+                &service,
+                &username,
+                Some(&password),
+                url.as_deref(),
+                notes.as_deref(),
+            )?;
             if generate_flag {
                 println!("Updated {service} with a generated password");
             } else {

@@ -50,6 +50,7 @@ pwstash              # opens the TUI (same as `pwstash gui`)
 pwstash init
 pwstash add --service github --username me
 pwstash add --service github --username me --generate
+pwstash add --service github --username me --url https://github.com --notes 2fa
 pwstash get --service github
 pwstash copy --service github
 pwstash list
@@ -63,7 +64,9 @@ pwstash -f vault.stash init
 pwstash add -f vault.stash --service github --username me
 ```
 
-`list` prints service and username only. `get` prints username and password to the terminal (it will sit in scrollback). Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.
+`list` prints service, username, and URL if set. `get` prints username, password, and any URL/notes. Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.
+
+`--url` and `--notes` are optional on `add` / `update`. Omitted flags on `update` leave the existing values. Older vaults without those fields still load; they default to empty.
 
 `--generate` on `add` / `update` creates a random password (letters, digits, symbols; default length 20, `--length` 8–128) and does not print it. `delete` asks you to type `y` and press Enter unless you pass `--yes`. Non-interactive runs (no TTY) require `--yes`.
 
@@ -93,7 +96,7 @@ pwstash gui -f vault.stash
 | `Ctrl-G` | Generate a password in the add/edit form |
 | `?` | Key help |
 | `a` | Add entry |
-| `e` | Edit selected username/password |
+| `e` | Edit selected entry (blank password keeps the current one) |
 | `d` | Delete with confirmation |
 | `P` | Change master password |
 | `q` / `Ctrl-C` | Quit (`Esc` backs out of a form first) |

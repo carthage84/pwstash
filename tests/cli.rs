@@ -231,6 +231,47 @@ fn help_lists_commands_without_subcommand() {
 }
 
 #[test]
+fn add_get_shows_url_and_notes() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .env("PWSTASH_ENTRY_PASSWORD", "hunter2")
+        .args(["add", "-f"])
+        .arg(vault_file(&dir))
+        .args([
+            "--service",
+            "mail",
+            "--username",
+            "ada",
+            "--url",
+            "https://mail.example",
+            "--notes",
+            "work",
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["get", "-f"])
+        .arg(vault_file(&dir))
+        .args(["--service", "mail"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("URL: https://mail.example"))
+        .stdout(predicate::str::contains("Notes: work"));
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["list", "-f"])
+        .arg(vault_file(&dir))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("https://mail.example"));
+}
+
+#[test]
 fn add_generate_does_not_print_password() {
     let dir = TempDir::new().unwrap();
     init(&dir);

@@ -13,7 +13,8 @@ use pwstash::event::Event;
 use pwstash::generate;
 use pwstash::handler::handle_key_events;
 use pwstash::master_password::{
-    read_entry_password, read_master_password, read_new_master_password,
+    read_changed_master_password, read_entry_password, read_master_password,
+    read_new_master_password,
 };
 use pwstash::paths;
 use pwstash::tui::Tui;
@@ -115,6 +116,12 @@ fn run() -> anyhow::Result<()> {
             }
             vault.delete(&service)?;
             println!("Deleted {service}");
+        }
+        Commands::Passwd => {
+            let mut vault = open_vault(&file)?;
+            let new_master = read_changed_master_password()?;
+            vault.change_master(&new_master)?;
+            println!("Master password updated");
         }
         Commands::Gui => {
             let vault = open_vault(&file)?;

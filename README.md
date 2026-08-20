@@ -38,6 +38,7 @@ Master and entry passwords are **never** taken from command-line arguments.
 - Interactive: hidden prompt (`rpassword`)
 - Non-interactive / tests:
   - `PWSTASH_MASTER` — vault password
+  - `PWSTASH_NEW_MASTER` — new vault password for `passwd`
   - `PWSTASH_ENTRY_PASSWORD` — password for `add` / `update`
 
 `init` prompts twice unless `PWSTASH_MASTER` is set.
@@ -54,6 +55,7 @@ pwstash copy --service github
 pwstash list
 pwstash update --service github --username me --generate --length 24
 pwstash delete --service github --yes
+pwstash passwd
 pwstash gui
 
 # or an explicit file
@@ -64,6 +66,8 @@ pwstash add -f vault.stash --service github --username me
 `list` prints service and username only. `get` prints username and password to the terminal (it will sit in scrollback). Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.
 
 `--generate` on `add` / `update` creates a random password (letters, digits, symbols; default length 20, `--length` 8–128) and does not print it. `delete` asks you to type `y` and press Enter unless you pass `--yes`. Non-interactive runs (no TTY) require `--yes`.
+
+`passwd` unlocks with the current master password, then prompts twice for a new one (or `PWSTASH_NEW_MASTER`). The vault is rewritten with a fresh salt.
 
 If the vault file does not exist, commands that need it fail with a hint to run `pwstash init`. Nothing is created automatically.
 
@@ -89,6 +93,7 @@ pwstash gui -f vault.stash
 | `a` | Add entry |
 | `e` | Edit selected username/password |
 | `d` | Delete with confirmation |
+| `P` | Change master password |
 | `q` / `Ctrl-C` | Quit (`Esc` backs out of a form first) |
 
 ## Threat model

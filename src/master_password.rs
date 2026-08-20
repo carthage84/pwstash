@@ -3,6 +3,7 @@ use std::env;
 use crate::error::StashError;
 
 const MASTER_ENV: &str = "PWSTASH_MASTER";
+const NEW_MASTER_ENV: &str = "PWSTASH_NEW_MASTER";
 const ENTRY_ENV: &str = "PWSTASH_ENTRY_PASSWORD";
 
 pub fn read_master_password() -> Result<String, StashError> {
@@ -15,6 +16,28 @@ pub fn read_new_master_password() -> Result<String, StashError> {
     }
     let first = prompt("New master password: ")?;
     let second = prompt("Confirm master password: ")?;
+    if first != second {
+        return Err(StashError::PasswordMismatch);
+    }
+    if first.is_empty() {
+        return Err(StashError::EmptyField {
+            field: "master password",
+        });
+    }
+    Ok(first)
+}
+
+pub fn read_changed_master_password() -> Result<String, StashError> {
+    if let Some(from_env) = from_env(NEW_MASTER_ENV) {
+        if from_env.is_empty() {
+            return Err(StashError::EmptyField {
+                field: "master password",
+            });
+        }
+        return Ok(from_env);
+    }
+    let first = prompt("New master password: ")?;
+    let second = prompt("Confirm new master password: ")?;
     if first != second {
         return Err(StashError::PasswordMismatch);
     }

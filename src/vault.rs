@@ -150,6 +150,19 @@ impl Vault {
         self.save()
     }
 
+    pub fn change_master(&mut self, new_password: &str) -> Result<(), StashError> {
+        if new_password.is_empty() {
+            return Err(StashError::EmptyField {
+                field: "master password",
+            });
+        }
+        let salt = encryption::generate_salt()?;
+        let key = Zeroizing::new(encryption::derive_key(new_password, &salt)?);
+        self.salt = salt;
+        self.key = key;
+        self.save()
+    }
+
     pub fn delete(&mut self, service: &str) -> Result<(), StashError> {
         let original = self.entries.len();
         self.entries
@@ -284,6 +297,28 @@ mod tests {
         assert_eq!(opened.entries().len(), 1);
         assert_eq!(opened.entries()[0].service, "mail");
         assert_eq!(opened.entries()[0].password, "pw");
+    }
+
+    #[test]
+    fn change_master_reencrypts() {
+        let (mut v, _dir) = vault();
+        v.add("mail", "ada", "pw").unwrap();
+        v.change_master("new-master-secret").unwrap();
+        let err = Vault::open(v.path(), "master-secret").unwrap_err();
+        assert!(matches!(err, StashError::InvalidMasterPassword));
+        let opened = Vault::open(v.path(), "new-master-secret").unwrap();
+        assert_eq!(opened.get("mail").unwrap().password, "pw");
+    }
+
+    #[test]
+    fn change_master_rejects_empty() {
+        let (mut v, _dir) = vault();
+        assert!(matches!(
+            v.change_master(""),
+            Err(StashError::EmptyField {
+                field: "master password"
+            })
+        ));
     }
 
     #[test]

@@ -15,6 +15,7 @@ pub enum Mode {
     Add,
     Edit,
     ConfirmDelete,
+    ChangeMaster,
     Help,
 }
 
@@ -23,6 +24,7 @@ pub struct FormState {
     pub service: String,
     pub username: String,
     pub password: String,
+    pub confirm: String,
     pub field: usize,
 }
 
@@ -30,7 +32,7 @@ impl FormState {
     pub fn field_count(&self, mode: Mode) -> usize {
         match mode {
             Mode::Add => 3,
-            Mode::Edit => 2,
+            Mode::Edit | Mode::ChangeMaster => 2,
             _ => 0,
         }
     }
@@ -39,7 +41,8 @@ impl FormState {
         match (mode, self.field) {
             (Mode::Add, 0) => &mut self.service,
             (Mode::Add, 1) | (Mode::Edit, 0) => &mut self.username,
-            (Mode::Add, 2) | (Mode::Edit, 1) => &mut self.password,
+            (Mode::Add, 2) | (Mode::Edit, 1) | (Mode::ChangeMaster, 0) => &mut self.password,
+            (Mode::ChangeMaster, 1) => &mut self.confirm,
             _ => &mut self.service,
         }
     }
@@ -243,9 +246,15 @@ impl App {
             service: entry.service.clone(),
             username: entry.username.clone(),
             password: String::new(),
+            confirm: String::new(),
             field: 0,
         };
         self.mode = Mode::Edit;
+    }
+
+    pub fn begin_change_master(&mut self) {
+        self.form = FormState::default();
+        self.mode = Mode::ChangeMaster;
     }
 
     pub fn begin_delete(&mut self) {
@@ -264,7 +273,7 @@ impl App {
                 self.sync_list_state();
                 self.mode = Mode::List;
             }
-            Mode::Add | Mode::Edit | Mode::ConfirmDelete | Mode::Help => {
+            Mode::Add | Mode::Edit | Mode::ConfirmDelete | Mode::ChangeMaster | Mode::Help => {
                 self.form = FormState::default();
                 self.mode = Mode::List;
             }
@@ -284,7 +293,7 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push_str(text);
             }
@@ -300,7 +309,7 @@ impl App {
                 self.revealed = false;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push(c);
             }
@@ -315,7 +324,7 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster => {
                 let mode = self.mode;
                 self.form.active_mut(mode).pop();
             }
@@ -356,6 +365,20 @@ impl App {
                         self.mode = Mode::List;
                         self.revealed = false;
                         self.flash(format!("Updated {service}"));
+                    }
+                    Err(err) => self.flash(err.to_string()),
+                }
+            }
+            Mode::ChangeMaster => {
+                if self.form.password != self.form.confirm {
+                    self.flash("Master passwords do not match");
+                    return Ok(());
+                }
+                match self.vault.change_master(&self.form.password) {
+                    Ok(()) => {
+                        self.form = FormState::default();
+                        self.mode = Mode::List;
+                        self.flash("Master password updated");
                     }
                     Err(err) => self.flash(err.to_string()),
                 }
@@ -495,6 +518,30 @@ mod tests {
         app.begin_add_generated();
         assert_eq!(app.mode, Mode::Add);
         assert_eq!(app.form.password.len(), crate::generate::DEFAULT_LENGTH);
+    }
+
+    #[test]
+    fn change_master_via_form() {
+        let (mut app, _dir) = app_with_entries();
+        let path = app.vault.path().to_path_buf();
+        app.begin_change_master();
+        app.form.password = "fresh-master".into();
+        app.form.confirm = "fresh-master".into();
+        app.submit_form().unwrap();
+        assert_eq!(app.mode, Mode::List);
+        assert!(Vault::open(&path, "master").is_err());
+        let opened = Vault::open(&path, "fresh-master").unwrap();
+        assert!(opened.get("github").is_some());
+    }
+
+    #[test]
+    fn change_master_mismatch_stays_in_form() {
+        let (mut app, _dir) = app_with_entries();
+        app.begin_change_master();
+        app.form.password = "a".into();
+        app.form.confirm = "b".into();
+        app.submit_form().unwrap();
+        assert_eq!(app.mode, Mode::ChangeMaster);
     }
 
     #[test]

@@ -25,6 +25,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
     match app.mode {
         Mode::Add | Mode::Edit => render_form(app, frame, area),
+        Mode::ChangeMaster => render_change_master(app, frame, area),
         Mode::ConfirmDelete => render_confirm(app, frame, area),
         Mode::Help => render_help(frame, area),
         Mode::List | Mode::Search => {}
@@ -119,12 +120,11 @@ fn render_body(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     let help = match app.mode {
-        Mode::List => {
-            "[j/k] move  [/] search  [p] reveal  [c]opy  [y] user  [g]en  [?] help  [q]uit"
-        }
+        Mode::List => "[j/k] move  [/] search  [p] reveal  [c]opy  [P] master  [?] help  [q]uit",
         Mode::Search => "type to filter  Enter keep  Esc clear",
         Mode::Add => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
         Mode::Edit => "Tab next  Ctrl-G generate  Enter save  Esc cancel",
+        Mode::ChangeMaster => "Tab next  Enter save  Esc cancel",
         Mode::ConfirmDelete => "[y] delete  [n] cancel",
         Mode::Help => "Esc or ? close help",
     };
@@ -214,6 +214,35 @@ fn field_style(app: &App, index: usize) -> Style {
     }
 }
 
+fn render_change_master(app: &App, frame: &mut Frame, area: Rect) {
+    let popup = centered_rect(60, 10, area);
+    frame.render_widget(Clear, popup);
+    let new_style = field_style(app, 0);
+    let confirm_style = field_style(app, 1);
+    let new_display: String = "*".repeat(app.form.password.chars().count());
+    let confirm_display: String = "*".repeat(app.form.confirm.chars().count());
+    let form = Paragraph::new(vec![
+        Line::from(vec![
+            Span::raw("New:      "),
+            Span::styled(new_display, new_style),
+        ]),
+        Line::from(vec![
+            Span::raw("Confirm:  "),
+            Span::styled(confirm_display, confirm_style),
+        ]),
+        Line::from(""),
+        Line::from("Enter saves, Esc cancels."),
+    ])
+    .block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .title("Change master password")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White).bg(Color::Black)),
+    );
+    frame.render_widget(form, popup);
+}
+
 fn render_help(frame: &mut Frame, area: Rect) {
     let popup = centered_rect(70, 16, area);
     frame.render_widget(Clear, popup);
@@ -225,6 +254,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Line::from("y               copy username (30s)"),
         Line::from("g               add with generated password"),
         Line::from("a / e / d       add / edit / delete"),
+        Line::from("P               change master password"),
         Line::from("Ctrl-G          generate in a form"),
         Line::from("q / Ctrl-C      quit"),
         Line::from(""),
@@ -320,5 +350,9 @@ mod tests {
         app.begin_help();
         terminal.draw(|f| render(&mut app, f)).unwrap();
         assert!(buffer_has(terminal.backend().buffer(), "copy password"));
+        assert!(buffer_has(
+            terminal.backend().buffer(),
+            "change master password"
+        ));
     }
 }

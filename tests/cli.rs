@@ -283,6 +283,38 @@ fn delete_without_yes_fails_when_stdin_is_not_a_tty() {
 }
 
 #[test]
+fn passwd_changes_master_and_keeps_entries() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    add(&dir, "github", "ada", "hunter2");
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .env("PWSTASH_NEW_MASTER", "fresh-secret")
+        .args(["passwd", "-f"])
+        .arg(vault_file(&dir))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Master password updated"));
+
+    bin()
+        .env("PWSTASH_MASTER", "master-secret")
+        .args(["list", "-f"])
+        .arg(vault_file(&dir))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid master password"));
+
+    bin()
+        .env("PWSTASH_MASTER", "fresh-secret")
+        .args(["get", "-f"])
+        .arg(vault_file(&dir))
+        .args(["--service", "github"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Password: hunter2"));
+}
+
+#[test]
 fn delete_missing_service_skips_prompt() {
     let dir = TempDir::new().unwrap();
     init(&dir);

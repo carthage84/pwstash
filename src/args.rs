@@ -63,6 +63,8 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
+    /// Change the vault master password
+    Passwd,
     /// Open the terminal UI
     Gui,
 }

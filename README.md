@@ -24,8 +24,6 @@ Default path: `pwstash.stash` in the current directory. Override with `-f` / `--
 
 Format (`PWS1`): 4-byte magic, 16-byte Argon2id salt, 12-byte AES-GCM nonce, then ciphertext. The salt is fixed when the vault is created; a new nonce is used on every save. Writes are atomic (temp file + rename). On Unix the file is created with mode `0600`.
 
-There is no migration from the unfinished pre-release format.
-
 ## Secrets
 
 Master and entry passwords are **never** taken from command-line arguments.

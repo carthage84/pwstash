@@ -46,6 +46,15 @@ pub enum Commands {
     },
     /// List services and usernames
     List,
+    /// Find entries by service, username, URL, or notes
+    Find { query: String },
+    /// Rename a service
+    Mv {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+    },
     /// Update credentials for a service
     Update {
         #[arg(short, long)]

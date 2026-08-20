@@ -54,6 +54,8 @@ pwstash add --service github --username me --url https://github.com --notes 2fa
 pwstash get --service github
 pwstash copy --service github
 pwstash list
+pwstash find git
+pwstash mv --from github --to gh
 pwstash update --service github --username me --generate --length 24
 pwstash delete --service github --yes
 pwstash passwd
@@ -64,7 +66,7 @@ pwstash -f vault.stash init
 pwstash add -f vault.stash --service github --username me
 ```
 
-`list` prints service, username, and URL if set. `get` prints username, password, and any URL/notes. Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.
+`list` prints service, username, and URL if set, sorted alphabetically by service. `find <query>` filters the same fields as TUI search (service, username, URL, notes). `mv --from a --to b` renames a service. `get` prints username, password, and any URL/notes. Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.
 
 `--url` and `--notes` are optional on `add` / `update`. Omitted flags on `update` leave the existing values. Older vaults without those fields still load; they default to empty.
 
@@ -97,6 +99,7 @@ pwstash gui -f vault.stash
 | `?` | Key help |
 | `a` | Add entry |
 | `e` | Edit selected entry (blank password keeps the current one) |
+| `r` | Rename selected service |
 | `d` | Delete with confirmation |
 | `P` | Change master password |
 | `q` / `Ctrl-C` | Quit (`Esc` backs out of a form first) |

@@ -18,6 +18,19 @@ pub struct PasswordEntry {
     pub notes: String,
 }
 
+impl PasswordEntry {
+    pub fn matches(&self, query: &str) -> bool {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return true;
+        }
+        self.service.to_lowercase().contains(&q)
+            || self.username.to_lowercase().contains(&q)
+            || self.url.to_lowercase().contains(&q)
+            || self.notes.to_lowercase().contains(&q)
+    }
+}
+
 impl std::fmt::Debug for PasswordEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PasswordEntry")
@@ -80,7 +93,8 @@ impl Vault {
             Ok(bytes) => bytes,
             Err(_) => return Err(StashError::InvalidMasterPassword),
         };
-        let entries: Vec<PasswordEntry> = serde_json::from_slice(&plaintext)?;
+        let mut entries: Vec<PasswordEntry> = serde_json::from_slice(&plaintext)?;
+        sort_entries(&mut entries);
         Ok(Self {
             path,
             salt: file.salt,
@@ -162,6 +176,39 @@ impl Vault {
             url: optional_text(url),
             notes: optional_text(notes),
         });
+        sort_entries(&mut self.entries);
+        self.save()
+    }
+
+    pub fn find(&self, query: &str) -> Vec<&PasswordEntry> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.matches(query))
+            .collect()
+    }
+
+    pub fn rename(&mut self, from: &str, to: &str) -> Result<(), StashError> {
+        self.ensure_unlocked()?;
+        let to = require_trimmed(to, "service")?;
+        let index = self
+            .entries
+            .iter()
+            .position(|e| e.service.eq_ignore_ascii_case(from))
+            .ok_or_else(|| StashError::ServiceNotFound {
+                service: from.to_string(),
+            })?;
+        if self
+            .entries
+            .iter()
+            .enumerate()
+            .any(|(i, entry)| i != index && entry.service.eq_ignore_ascii_case(&to))
+        {
+            return Err(StashError::DuplicateService {
+                service: to.clone(),
+            });
+        }
+        self.entries[index].service = to;
+        sort_entries(&mut self.entries);
         self.save()
     }
 
@@ -237,6 +284,7 @@ impl Vault {
                 service: service.to_string(),
             });
         }
+        sort_entries(&mut self.entries);
         self.save()
     }
 
@@ -256,6 +304,15 @@ fn require_trimmed(value: &str, field: &'static str) -> Result<String, StashErro
     } else {
         Ok(trimmed.to_string())
     }
+}
+
+fn sort_entries(entries: &mut [PasswordEntry]) {
+    entries.sort_by(|a, b| {
+        a.service
+            .to_lowercase()
+            .cmp(&b.service.to_lowercase())
+            .then_with(|| a.username.to_lowercase().cmp(&b.username.to_lowercase()))
+    });
 }
 
 fn optional_text(value: &str) -> String {
@@ -375,6 +432,40 @@ mod tests {
         let entry = opened.get("mail").unwrap();
         assert_eq!(entry.url, "https://mail.example");
         assert_eq!(entry.notes, "work account");
+    }
+
+    #[test]
+    fn find_matches_service_and_notes() {
+        let (mut v, _dir) = vault();
+        v.add_full("GitHub", "ada", "pw", "", "2fa work").unwrap();
+        v.add("mail", "bob", "pw").unwrap();
+        assert_eq!(v.find("git").len(), 1);
+        assert_eq!(v.find("2fa").len(), 1);
+        assert_eq!(v.find("nope").len(), 0);
+        assert_eq!(v.find("").len(), 2);
+    }
+
+    #[test]
+    fn rename_service_and_reject_duplicate() {
+        let (mut v, _dir) = vault();
+        v.add("GitHub", "ada", "pw").unwrap();
+        v.add("mail", "bob", "pw").unwrap();
+        v.rename("github", "gh").unwrap();
+        assert!(v.get("github").is_none());
+        assert_eq!(v.get("gh").unwrap().username, "ada");
+        let err = v.rename("gh", "mail").unwrap_err();
+        assert!(matches!(err, StashError::DuplicateService { .. }));
+        v.rename("gh", "GH").unwrap();
+        assert_eq!(v.get("GH").unwrap().service, "GH");
+    }
+
+    #[test]
+    fn list_order_is_alphabetical() {
+        let (mut v, _dir) = vault();
+        v.add("zeta", "a", "p").unwrap();
+        v.add("Alpha", "a", "p").unwrap();
+        let names: Vec<_> = v.entries().iter().map(|e| e.service.as_str()).collect();
+        assert_eq!(names, ["Alpha", "zeta"]);
     }
 
     #[test]

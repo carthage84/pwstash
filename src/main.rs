@@ -93,17 +93,21 @@ fn run() -> anyhow::Result<()> {
         }
         Commands::List => {
             let vault = open_vault(&file)?;
-            if vault.entries().is_empty() {
-                println!("No entries.");
+            print_listing(vault.entries().iter());
+        }
+        Commands::Find { query } => {
+            let vault = open_vault(&file)?;
+            let found = vault.find(&query);
+            if found.is_empty() {
+                println!("No matching entries.");
             } else {
-                for entry in vault.entries() {
-                    if entry.url.is_empty() {
-                        println!("{}\t{}", entry.service, entry.username);
-                    } else {
-                        println!("{}\t{}\t{}", entry.service, entry.username, entry.url);
-                    }
-                }
+                print_listing(found);
             }
+        }
+        Commands::Mv { from, to } => {
+            let mut vault = open_vault(&file)?;
+            vault.rename(&from, &to)?;
+            println!("Renamed {from} to {to}");
         }
         Commands::Update {
             service,
@@ -155,6 +159,21 @@ fn run() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn print_listing<'a>(entries: impl IntoIterator<Item = &'a pwstash::vault::PasswordEntry>) {
+    let entries: Vec<_> = entries.into_iter().collect();
+    if entries.is_empty() {
+        println!("No entries.");
+        return;
+    }
+    for entry in entries {
+        if entry.url.is_empty() {
+            println!("{}\t{}", entry.service, entry.username);
+        } else {
+            println!("{}\t{}\t{}", entry.service, entry.username, entry.url);
+        }
+    }
 }
 
 fn entry_password(generate_flag: bool, length: usize) -> anyhow::Result<String> {

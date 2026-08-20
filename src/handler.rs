@@ -14,7 +14,7 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> Result<()> {
     match app.mode {
         Mode::List => handle_list(key_event, app),
         Mode::Search => handle_search(key_event, app),
-        Mode::Add | Mode::Edit | Mode::ChangeMaster => handle_form(key_event, app),
+        Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Rename => handle_form(key_event, app),
         Mode::ConfirmDelete => handle_confirm(key_event, app),
         Mode::Help => handle_help(key_event, app),
         Mode::Locked => handle_unlock(key_event, app),
@@ -38,6 +38,7 @@ fn handle_list(key_event: KeyEvent, app: &mut App) -> Result<()> {
         KeyCode::Char('?') => app.begin_help(),
         KeyCode::Char('a') => app.begin_add(),
         KeyCode::Char('e') => app.begin_edit(),
+        KeyCode::Char('r') => app.begin_rename(),
         KeyCode::Char('d') => app.begin_delete(),
         _ => {}
     }
@@ -58,7 +59,7 @@ fn handle_search(key_event: KeyEvent, app: &mut App) -> Result<()> {
 }
 
 fn handle_form(key_event: KeyEvent, app: &mut App) -> Result<()> {
-    if app.mode != Mode::ChangeMaster
+    if !matches!(app.mode, Mode::ChangeMaster | Mode::Rename)
         && key_event.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key_event.code, KeyCode::Char('g') | KeyCode::Char('G'))
     {
@@ -165,6 +166,9 @@ mod tests {
         handle_key_events(key(KeyCode::Char('g')), &mut app).unwrap();
         assert_eq!(app.mode, Mode::Add);
         assert!(app.form.password.len() >= crate::generate::MIN_LENGTH);
+        handle_key_events(key(KeyCode::Esc), &mut app).unwrap();
+        handle_key_events(key(KeyCode::Char('r')), &mut app).unwrap();
+        assert_eq!(app.mode, Mode::Rename);
         handle_key_events(key(KeyCode::Esc), &mut app).unwrap();
         handle_key_events(key(KeyCode::Char('P')), &mut app).unwrap();
         assert_eq!(app.mode, Mode::ChangeMaster);

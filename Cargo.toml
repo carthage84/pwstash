@@ -8,6 +8,7 @@ rust-version = "1.97"
 
 [dependencies]
 aes-gcm = "0.10"
+anyhow = "1"
 argon2 = "0.5"
 clap = { version = "4.5.5", features = ["derive"] }
 clap_derive = "4.5.5"

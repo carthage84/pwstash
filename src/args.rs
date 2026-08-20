@@ -1,58 +1,69 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
-#[derive(Parser)]
-#[command(version, about, long_about)]
-pub struct CommandLineArgs {
+pub const DEFAULT_VAULT: &str = "pwstash.stash";
 
+#[derive(Parser, Debug)]
+#[command(version, about = "Encrypted password vault", long_about = None)]
+pub struct CommandLineArgs {
     #[command(subcommand)]
     pub command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Initialize a new Vault
+    /// Initialize a new vault
     Init {
-        /// Path to the Vault file
-        #[arg(short, long)]
-        file: String,
-
-        /// Password to the Vault
-        #[arg(short, long)]
-        masterpassword: Option<String>
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
     },
-    /// Add new credentials to Vault
+    /// Add credentials
     Add {
-        /// Path to the Vault file
-        file: String,
-        /// Name of the stashed service
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
+        #[arg(short, long)]
         service: String,
-        /// Username to stashed service
+        #[arg(short, long)]
         username: String,
-        /// Password to stashed service
-        password: String,
-        /// Password to the Vault
-        masterpassword: Option<String>
     },
-    /// Get credentials to selected service
+    /// Print credentials for a service
     Get {
-        /// Path to the Vault file
-        file: String,
-        /// Name of the stashed service
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
+        #[arg(short, long)]
         service: String,
-        /// Password to the Vault
-        masterpassword: Option<String>
     },
-    /// Run Graphical User Interface
+    /// List services and usernames
+    List {
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
+    },
+    /// Update credentials for a service
+    Update {
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
+        #[arg(short, long)]
+        service: String,
+        #[arg(short, long)]
+        username: String,
+    },
+    /// Remove credentials for a service
+    Delete {
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
+        #[arg(short, long)]
+        service: String,
+    },
+    /// Open the terminal UI
     Gui {
-        /// Path to the Vault file
-        file: String,
-        /// Password to the Vault
-        masterpassword: Option<String>
+        #[arg(short, long, default_value = DEFAULT_VAULT)]
+        file: PathBuf,
     },
 }
 
 impl CommandLineArgs {
     pub fn parse() -> Self {
-        CommandLineArgs::parse_from(std::env::args())
+        <Self as Parser>::parse()
     }
 }

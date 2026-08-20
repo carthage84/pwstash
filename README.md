@@ -20,7 +20,14 @@ cargo run --release -- init
 
 ## Vault file
 
-Default path: `pwstash.stash` in the current directory. Override with `-f` / `--file`.
+Path is chosen in this order:
+
+1. `-f` / `--file` (global; can sit before or after the subcommand)
+2. `PWSTASH_FILE`
+3. `./pwstash.stash` if that file already exists
+4. Per-user default: `%APPDATA%\pwstash\vault.stash` on Windows, `~/.local/share/pwstash/vault.stash` on Unix
+
+`init` creates missing parent directories.
 
 Format (`PWS1`): 4-byte magic, 16-byte Argon2id salt, 12-byte AES-GCM nonce, then ciphertext. The salt is fixed when the vault is created; a new nonce is used on every save. Writes are atomic (temp file + rename). On Unix the file is created with mode `0600`.
 
@@ -38,14 +45,18 @@ Master and entry passwords are **never** taken from command-line arguments.
 ## Commands
 
 ```bash
-pwstash init -f vault.stash
-pwstash add  -f vault.stash --service github --username me
-pwstash get  -f vault.stash --service github
-pwstash copy -f vault.stash --service github
-pwstash list -f vault.stash
-pwstash update -f vault.stash --service github --username me
-pwstash delete -f vault.stash --service github
-pwstash gui  -f vault.stash
+pwstash init
+pwstash add --service github --username me
+pwstash get --service github
+pwstash copy --service github
+pwstash list
+pwstash update --service github --username me
+pwstash delete --service github
+pwstash gui
+
+# or an explicit file
+pwstash -f vault.stash init
+pwstash add -f vault.stash --service github --username me
 ```
 
 `list` prints service and username only. `get` prints username and password to the terminal (it will sit in scrollback). Prefer `copy` when you just need to paste the password: it places the secret on the clipboard, never prints it, waits 30 seconds, then overwrites the clipboard. Ctrl-C during that wait still clears the clipboard.

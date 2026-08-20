@@ -14,6 +14,7 @@ use pwstash::handler::handle_key_events;
 use pwstash::master_password::{
     read_entry_password, read_master_password, read_new_master_password,
 };
+use pwstash::paths;
 use pwstash::tui::Tui;
 use pwstash::vault::Vault;
 
@@ -27,23 +28,20 @@ fn main() -> ExitCode {
 
 fn run() -> anyhow::Result<()> {
     let cli = CommandLineArgs::parse();
+    let file = paths::resolve_vault_path(cli.file.as_deref());
     match cli.command {
-        Commands::Init { file } => {
+        Commands::Init => {
             let master = read_new_master_password()?;
             Vault::create(&file, &master)?;
             println!("Created vault {}", file.display());
         }
-        Commands::Add {
-            file,
-            service,
-            username,
-        } => {
+        Commands::Add { service, username } => {
             let mut vault = open_vault(&file)?;
             let password = read_entry_password()?;
             vault.add(&service, &username, &password)?;
             println!("Added {service}");
         }
-        Commands::Get { file, service } => {
+        Commands::Get { service } => {
             let vault = open_vault(&file)?;
             match vault.get(&service) {
                 Some(entry) => {
@@ -53,7 +51,7 @@ fn run() -> anyhow::Result<()> {
                 None => println!("No password found for {service}"),
             }
         }
-        Commands::Copy { file, service } => {
+        Commands::Copy { service } => {
             let vault = open_vault(&file)?;
             let password = vault
                 .get(&service)
@@ -68,7 +66,7 @@ fn run() -> anyhow::Result<()> {
             clipboard::wait_then_clear()?;
             println!("Clipboard cleared.");
         }
-        Commands::List { file } => {
+        Commands::List => {
             let vault = open_vault(&file)?;
             if vault.entries().is_empty() {
                 println!("No entries.");
@@ -78,22 +76,18 @@ fn run() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Update {
-            file,
-            service,
-            username,
-        } => {
+        Commands::Update { service, username } => {
             let mut vault = open_vault(&file)?;
             let password = read_entry_password()?;
             vault.update(&service, &username, &password)?;
             println!("Updated {service}");
         }
-        Commands::Delete { file, service } => {
+        Commands::Delete { service } => {
             let mut vault = open_vault(&file)?;
             vault.delete(&service)?;
             println!("Deleted {service}");
         }
-        Commands::Gui { file } => {
+        Commands::Gui => {
             let vault = open_vault(&file)?;
             run_gui(vault)?;
         }

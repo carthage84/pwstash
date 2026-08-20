@@ -3,3 +3,5 @@
 /.idea/modules.xml
 /.idea/pwstash.iml
 /.idea/vcs.xml
+.idea/developer-tools.xml
+.cursorignore

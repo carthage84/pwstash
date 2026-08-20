@@ -176,8 +176,14 @@ fn run_gui(vault: Vault) -> anyhow::Result<()> {
         tui.draw(&mut app)?;
         match tui.events.next()? {
             Event::Tick => app.tick(),
-            Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
-            Event::Paste(text) => app.handle_paste(&text),
+            Event::Key(key_event) => {
+                app.note_activity();
+                handle_key_events(key_event, &mut app)?;
+            }
+            Event::Paste(text) => {
+                app.note_activity();
+                app.handle_paste(&text);
+            }
             Event::Mouse(_) | Event::Resize(_, _) => {}
         }
     }

@@ -75,6 +75,8 @@ If the vault file does not exist, commands that need it fail with a hint to run 
 
 `pwstash` with no subcommand opens the TUI on the default vault. `pwstash gui` does the same.
 
+After 2 minutes with no keys, the TUI locks: entries and the derived key are wiped from memory, the clipboard is cleared, and you must type the master password to unlock. `q` on the lock screen quits.
+
 ```bash
 pwstash
 pwstash gui -f vault.stash

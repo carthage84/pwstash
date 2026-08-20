@@ -28,6 +28,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         Mode::ChangeMaster => render_change_master(app, frame, area),
         Mode::ConfirmDelete => render_confirm(app, frame, area),
         Mode::Help => render_help(frame, area),
+        Mode::Locked => render_locked(app, frame, area),
         Mode::List | Mode::Search => {}
     }
 }
@@ -127,6 +128,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         Mode::ChangeMaster => "Tab next  Enter save  Esc cancel",
         Mode::ConfirmDelete => "[y] delete  [n] cancel",
         Mode::Help => "Esc or ? close help",
+        Mode::Locked => "Enter unlock  q quit",
     };
     let text = if let Some((msg, _)) = &app.status {
         Line::from(vec![
@@ -243,6 +245,37 @@ fn render_change_master(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(form, popup);
 }
 
+fn render_locked(app: &App, frame: &mut Frame, area: Rect) {
+    let popup = centered_rect(60, 9, area);
+    frame.render_widget(Clear, popup);
+    let stars: String = "*".repeat(app.form.password.chars().count());
+    let text = Paragraph::new(vec![
+        Line::from("Idle lock. Vault is wiped from memory."),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Master: "),
+            Span::styled(
+                stars,
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+        Line::from("Enter unlocks. q quits."),
+    ])
+    .alignment(Alignment::Center)
+    .block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .title("Locked")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White).bg(Color::Black)),
+    );
+    frame.render_widget(text, popup);
+}
+
 fn render_help(frame: &mut Frame, area: Rect) {
     let popup = centered_rect(70, 16, area);
     frame.render_widget(Clear, popup);
@@ -258,6 +291,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Line::from("Ctrl-G          generate in a form"),
         Line::from("q / Ctrl-C      quit"),
         Line::from(""),
+        Line::from("Idle 2 min       lock vault"),
         Line::from("Esc or ? closes this help."),
     ])
     .block(
@@ -354,5 +388,10 @@ mod tests {
             terminal.backend().buffer(),
             "change master password"
         ));
+
+        app.lock();
+        terminal.draw(|f| render(&mut app, f)).unwrap();
+        assert!(buffer_has(terminal.backend().buffer(), "Locked"));
+        assert!(!buffer_has(terminal.backend().buffer(), "github"));
     }
 }

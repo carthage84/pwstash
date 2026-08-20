@@ -7,6 +7,7 @@ use crate::clipboard::{self, CLIPBOARD_TTL};
 use crate::vault::{PasswordEntry, Vault};
 
 const STATUS_TTL: Duration = Duration::from_secs(4);
+pub const IDLE_LOCK: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -17,6 +18,7 @@ pub enum Mode {
     ConfirmDelete,
     ChangeMaster,
     Help,
+    Locked,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -33,6 +35,7 @@ impl FormState {
         match mode {
             Mode::Add => 3,
             Mode::Edit | Mode::ChangeMaster => 2,
+            Mode::Locked => 1,
             _ => 0,
         }
     }
@@ -41,7 +44,9 @@ impl FormState {
         match (mode, self.field) {
             (Mode::Add, 0) => &mut self.service,
             (Mode::Add, 1) | (Mode::Edit, 0) => &mut self.username,
-            (Mode::Add, 2) | (Mode::Edit, 1) | (Mode::ChangeMaster, 0) => &mut self.password,
+            (Mode::Add, 2) | (Mode::Edit, 1) | (Mode::ChangeMaster, 0) | (Mode::Locked, _) => {
+                &mut self.password
+            }
             (Mode::ChangeMaster, 1) => &mut self.confirm,
             _ => &mut self.service,
         }
@@ -73,6 +78,8 @@ pub struct App {
     pub list_state: ListState,
     pub status: Option<(String, Instant)>,
     clipboard_clear_at: Option<Instant>,
+    last_input: Instant,
+    idle_timeout: Duration,
 }
 
 impl App {
@@ -88,12 +95,18 @@ impl App {
             list_state: ListState::default(),
             status: None,
             clipboard_clear_at: None,
+            last_input: Instant::now(),
+            idle_timeout: IDLE_LOCK,
         };
         app.sync_list_state();
         app
     }
 
     pub fn tick(&mut self) {
+        if self.mode != Mode::Locked && self.last_input.elapsed() >= self.idle_timeout {
+            self.lock();
+            return;
+        }
         if let Some(deadline) = self.clipboard_clear_at
             && Instant::now() >= deadline
         {
@@ -106,6 +119,24 @@ impl App {
         {
             self.status = None;
         }
+    }
+
+    pub fn note_activity(&mut self) {
+        if self.mode != Mode::Locked {
+            self.last_input = Instant::now();
+        }
+    }
+
+    pub fn lock(&mut self) {
+        let _ = clipboard::clear();
+        self.clipboard_clear_at = None;
+        self.revealed = false;
+        self.filter.clear();
+        self.form = FormState::default();
+        self.status = None;
+        self.vault.lock();
+        self.sync_list_state();
+        self.mode = Mode::Locked;
     }
 
     pub fn quit(&mut self) {
@@ -277,7 +308,7 @@ impl App {
                 self.form = FormState::default();
                 self.mode = Mode::List;
             }
-            Mode::List => {}
+            Mode::List | Mode::Locked => {}
         }
     }
 
@@ -293,7 +324,7 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push_str(text);
             }
@@ -309,7 +340,7 @@ impl App {
                 self.revealed = false;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).push(c);
             }
@@ -324,7 +355,7 @@ impl App {
                 self.selected = 0;
                 self.sync_list_state();
             }
-            Mode::Add | Mode::Edit | Mode::ChangeMaster => {
+            Mode::Add | Mode::Edit | Mode::ChangeMaster | Mode::Locked => {
                 let mode = self.mode;
                 self.form.active_mut(mode).pop();
             }
@@ -383,9 +414,30 @@ impl App {
                     Err(err) => self.flash(err.to_string()),
                 }
             }
+            Mode::Locked => {
+                let password = self.form.password.clone();
+                match self.vault.unlock(&password) {
+                    Ok(()) => {
+                        self.form = FormState::default();
+                        self.mode = Mode::List;
+                        self.last_input = Instant::now();
+                        self.sync_list_state();
+                        self.flash("Unlocked");
+                    }
+                    Err(err) => {
+                        self.form.password.clear();
+                        self.flash(err.to_string());
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn expire_idle_for_test(&mut self) {
+        self.last_input = Instant::now() - self.idle_timeout - Duration::from_secs(1);
     }
 
     pub fn confirm_delete(&mut self) -> Result<()> {
@@ -542,6 +594,25 @@ mod tests {
         app.form.confirm = "b".into();
         app.submit_form().unwrap();
         assert_eq!(app.mode, Mode::ChangeMaster);
+    }
+
+    #[test]
+    fn idle_tick_locks_and_unlock_restores() {
+        let (mut app, _dir) = app_with_entries();
+        app.expire_idle_for_test();
+        app.tick();
+        assert_eq!(app.mode, Mode::Locked);
+        assert!(app.vault.is_locked());
+        assert!(app.vault.entries().is_empty());
+
+        app.form.password = "wrong".into();
+        app.submit_form().unwrap();
+        assert_eq!(app.mode, Mode::Locked);
+
+        app.form.password = "master".into();
+        app.submit_form().unwrap();
+        assert_eq!(app.mode, Mode::List);
+        assert!(app.vault.get("github").is_some());
     }
 
     #[test]

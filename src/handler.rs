@@ -17,6 +17,7 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> Result<()> {
         Mode::Add | Mode::Edit | Mode::ChangeMaster => handle_form(key_event, app),
         Mode::ConfirmDelete => handle_confirm(key_event, app),
         Mode::Help => handle_help(key_event, app),
+        Mode::Locked => handle_unlock(key_event, app),
     }
 }
 
@@ -76,6 +77,19 @@ fn handle_form(key_event: KeyEvent, app: &mut App) -> Result<()> {
                 app.form.next_field(app.mode);
             }
         }
+        KeyCode::Backspace => app.backspace(),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.type_char(c);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_unlock(key_event: KeyEvent, app: &mut App) -> Result<()> {
+    match key_event.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.quit(),
+        KeyCode::Enter => app.submit_form()?,
         KeyCode::Backspace => app.backspace(),
         KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             app.type_char(c);
@@ -154,5 +168,9 @@ mod tests {
         handle_key_events(key(KeyCode::Esc), &mut app).unwrap();
         handle_key_events(key(KeyCode::Char('P')), &mut app).unwrap();
         assert_eq!(app.mode, Mode::ChangeMaster);
+        handle_key_events(key(KeyCode::Esc), &mut app).unwrap();
+        app.lock();
+        handle_key_events(key(KeyCode::Char('q')), &mut app).unwrap();
+        assert!(!app.running);
     }
 }

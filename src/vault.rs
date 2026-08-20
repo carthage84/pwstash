@@ -29,6 +29,7 @@ pub struct Vault {
     salt: [u8; SALT_LEN],
     key: Zeroizing<[u8; KEY_LEN]>,
     entries: Vec<PasswordEntry>,
+    locked: bool,
 }
 
 impl std::fmt::Debug for Vault {
@@ -60,6 +61,7 @@ impl Vault {
             salt,
             key,
             entries: Vec::new(),
+            locked: false,
         };
         vault.save()?;
         Ok(vault)
@@ -79,6 +81,7 @@ impl Vault {
             salt: file.salt,
             key,
             entries,
+            locked: false,
         })
     }
 
@@ -90,7 +93,26 @@ impl Vault {
         &self.entries
     }
 
+    pub fn is_locked(&self) -> bool {
+        self.locked
+    }
+
+    pub fn lock(&mut self) {
+        for entry in &mut self.entries {
+            entry.zeroize();
+        }
+        self.entries.clear();
+        self.key = Zeroizing::new([0u8; KEY_LEN]);
+        self.locked = true;
+    }
+
+    pub fn unlock(&mut self, master_password: &str) -> Result<(), StashError> {
+        *self = Self::open(&self.path, master_password)?;
+        Ok(())
+    }
+
     pub fn save(&self) -> Result<(), StashError> {
+        self.ensure_unlocked()?;
         let plaintext = serde_json::to_vec(&self.entries)?;
         let (nonce, ciphertext) = encryption::encrypt(&plaintext, &self.key)?;
         persistence::write_vault_file(
@@ -104,6 +126,7 @@ impl Vault {
     }
 
     pub fn add(&mut self, service: &str, username: &str, password: &str) -> Result<(), StashError> {
+        self.ensure_unlocked()?;
         let service = require_trimmed(service, "service")?;
         let username = require_trimmed(username, "username")?;
         require_password(password)?;
@@ -136,6 +159,7 @@ impl Vault {
         username: &str,
         password: &str,
     ) -> Result<(), StashError> {
+        self.ensure_unlocked()?;
         let username = require_trimmed(username, "username")?;
         require_password(password)?;
         let index = self
@@ -151,6 +175,7 @@ impl Vault {
     }
 
     pub fn change_master(&mut self, new_password: &str) -> Result<(), StashError> {
+        self.ensure_unlocked()?;
         if new_password.is_empty() {
             return Err(StashError::EmptyField {
                 field: "master password",
@@ -164,6 +189,7 @@ impl Vault {
     }
 
     pub fn delete(&mut self, service: &str) -> Result<(), StashError> {
+        self.ensure_unlocked()?;
         let original = self.entries.len();
         self.entries
             .retain(|e| !e.service.eq_ignore_ascii_case(service));
@@ -173,6 +199,14 @@ impl Vault {
             });
         }
         self.save()
+    }
+
+    fn ensure_unlocked(&self) -> Result<(), StashError> {
+        if self.locked {
+            Err(StashError::VaultLocked)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -308,6 +342,30 @@ mod tests {
         assert!(matches!(err, StashError::InvalidMasterPassword));
         let opened = Vault::open(v.path(), "new-master-secret").unwrap();
         assert_eq!(opened.get("mail").unwrap().password, "pw");
+    }
+
+    #[test]
+    fn lock_wipes_then_unlock_restores() {
+        let (mut v, _dir) = vault();
+        v.add("mail", "ada", "pw").unwrap();
+        v.lock();
+        assert!(v.is_locked());
+        assert!(v.entries().is_empty());
+        assert!(matches!(v.add("x", "y", "z"), Err(StashError::VaultLocked)));
+        v.unlock("master-secret").unwrap();
+        assert!(!v.is_locked());
+        assert_eq!(v.get("mail").unwrap().password, "pw");
+    }
+
+    #[test]
+    fn lock_wrong_password_stays_locked() {
+        let (mut v, _dir) = vault();
+        v.lock();
+        assert!(matches!(
+            v.unlock("nope"),
+            Err(StashError::InvalidMasterPassword)
+        ));
+        assert!(v.is_locked());
     }
 
     #[test]

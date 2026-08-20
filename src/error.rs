@@ -62,4 +62,7 @@ pub enum StashError {
 
     #[error("generated password length must be between {min} and {max}")]
     InvalidGenerateLength { min: usize, max: usize },
+
+    #[error("vault is locked")]
+    VaultLocked,
 }
